@@ -506,6 +506,7 @@
     const u = state.me.user;
     const g0 = u.gender || (u.avatar && u.avatar.base) || 'girl';
     let av = Object.assign({}, Avatar.DEFAULTS[g0], u.avatar || {}, { base: g0 });
+    ['hair', 'outfit', 'accessory'].forEach(k => { if (!Avatar.allowed(k, av[k], g0)) av[k] = Avatar.DEFAULTS[g0][k]; });
     const tabs = EDIT_TABS.filter(([k]) => k !== 'base' || !u.genderLocked);
     let cur = tabs[0][0];
     openSheet(`
@@ -520,7 +521,7 @@
     const draw = () => {
       $('#prev').innerHTML = Avatar.render(av);
       $('#otabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === cur));
-      const list = Avatar.OPTIONS[cur];
+      const list = Avatar.optionsFor(cur, av.base);
       if (SWATCH.includes(cur)) {
         $('#opts').innerHTML = `<div class="swatches">${list.map(([v, l]) => `<button data-v="${v}" title="${l}" aria-label="${l}" class="${av[cur] === v ? 'on' : ''}" style="background:${v}"></button>`).join('')}</div>`;
       } else {
@@ -541,7 +542,7 @@
     $('#otabs').querySelectorAll('button').forEach(b => b.onclick = () => { cur = b.dataset.k; draw(); b.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); });
     $('#rand').onclick = () => {
       haptic();
-      const pick = k => { const o = Avatar.OPTIONS[k]; return o[Math.floor(Math.random() * o.length)][0]; };
+      const pick = k => { const o = Avatar.optionsFor(k, av.base); return o[Math.floor(Math.random() * o.length)][0]; };
       // Only fun extras are random. Male/Female, skin, hair and background stay as the person chose.
       ['eyes', 'mouth', 'outfit', 'outfitColor', 'accessory', 'pose'].forEach(k => av[k] = pick(k));
       draw();

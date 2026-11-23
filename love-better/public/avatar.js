@@ -18,6 +18,20 @@
     background: [['blush', 'Blush'], ['sky', 'Sky'], ['mint', 'Mint'], ['sunset', 'Sunset'], ['hearts', 'Hearts'], ['snow', 'Snowy night'], ['stars', 'Starry'], ['gold', 'Gold']],
   };
 
+  // Which hairstyles each gender can pick (others are hidden in the editor).
+  const HAIR_FOR = {
+    boy: ['short', 'spiky', 'sidepart', 'buzz', 'curly', 'quiff', 'mohawk', 'manbun', 'afro', 'bald'],
+    girl: ['long', 'wavy', 'ponytail', 'pigtails', 'bob', 'buns', 'braids', 'pixie'],
+  };
+  // Clothes and accessories that are only for one gender. Everything else is for both.
+  const ONLY_FOR = {
+    outfit: { blouse: 'girl', dress: 'girl', suit: 'boy' },
+    accessory: { bow: 'girl', flower: 'girl' },
+  };
+  const g = base => (base === 'girl' ? 'girl' : 'boy');
+  const allowed = (key, v, base) => key === 'hair' ? HAIR_FOR[g(base)].includes(v) : !(ONLY_FOR[key] && ONLY_FOR[key][v] && ONLY_FOR[key][v] !== g(base));
+  const optionsFor = (key, base) => OPTIONS[key].filter(([v]) => allowed(key, v, base));
+
   const DEFAULTS = {
     boy: { base: 'boy', skin: '#F6CBA5', hair: 'short', hairColor: '#2B1B14', eyes: 'round', mouth: 'smile', outfit: 'hoodie', outfitColor: '#4FC3F7', accessory: 'none', pose: 'wave', background: 'sky' },
     girl: { base: 'girl', skin: '#F6CBA5', hair: 'long', hairColor: '#5A3825', eyes: 'sparkle', mouth: 'smile', outfit: 'cardigan', outfitColor: '#FFB74D', accessory: 'flower', pose: 'heart', background: 'mint' },
@@ -35,6 +49,7 @@
   let uid = 0;
   function render(input, opts = {}) {
     const a = Object.assign({}, DEFAULTS[(input && input.base) || 'boy'], input || {});
+    ['hair', 'outfit', 'accessory'].forEach(k => { if (!allowed(k, a[k], a.base)) a[k] = DEFAULTS[g(a.base)][k]; }); // keep items matching gender
     const id = 'av' + (++uid);
     const girl = a.base === 'girl';
     const skin = a.skin, skinD = shade(skin, -0.12), hc = a.hairColor, hcD = shade(hc, -0.12);
@@ -192,5 +207,5 @@
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}" ${size} role="img" aria-label="avatar">${p.join('')}</svg>`;
   }
 
-  window.Avatar = { OPTIONS, DEFAULTS, render };
+  window.Avatar = { OPTIONS, DEFAULTS, HAIR_FOR, ONLY_FOR, allowed, optionsFor, render };
 })();
