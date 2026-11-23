@@ -20,8 +20,9 @@ const config = {
   // Local testing only: lets the mini app run in a normal browser without Telegram.
   devMode: process.env.DEV_MODE === '1',
   events: [
-    { key: 'day1', title: 'XMAS Service Day 1', date: process.env.XMAS_DAY1 || '2026-12-24T00:00:00+08:00' },
-    { key: 'day2', title: 'XMAS Service Day 2', date: process.env.XMAS_DAY2 || '2026-12-25T00:00:00+08:00' },
+    { key: 'day1', emoji: '🎄', title: 'XMAS Service Day 1', date: process.env.XMAS_DAY1 || '2026-12-24T00:00:00+08:00' },
+    { key: 'day2', emoji: '⭐', title: 'XMAS Service Day 2', date: process.env.XMAS_DAY2 || '2026-12-25T00:00:00+08:00' },
+    { key: 'newyear', emoji: '🎆', title: 'New Year 2027', date: process.env.NEW_YEAR || '2027-01-01T00:00:00+08:00' },
   ],
   stars: { stranger: 3, friend: 2, cg: 1 },
   tzOffsetMinutes: 8 * 60, // Singapore time

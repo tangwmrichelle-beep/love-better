@@ -1,14 +1,16 @@
 // Love Better avatar maker: draws a layered SVG character from a small set of choices.
 (function () {
   const OPTIONS = {
-    base: [['boy', 'Boy'], ['girl', 'Girl']],
+    base: [['boy', 'Male'], ['girl', 'Female']],
     skin: [['#FFE0C7', 'Fair'], ['#F6CBA5', 'Light'], ['#E8B48A', 'Tan'], ['#C98E5F', 'Caramel'], ['#9C6640', 'Brown'], ['#6B4228', 'Deep']],
     hair: [['short', 'Short'], ['spiky', 'Spiky'], ['sidepart', 'Side part'], ['buzz', 'Buzz'], ['curly', 'Curly'],
-      ['long', 'Long'], ['ponytail', 'Ponytail'], ['bob', 'Bob'], ['buns', 'Buns'], ['braids', 'Braids'], ['bald', 'None']],
+      ['quiff', 'Quiff'], ['mohawk', 'Mohawk'], ['manbun', 'Man bun'], ['afro', 'Afro'], ['pixie', 'Pixie'],
+      ['long', 'Long'], ['wavy', 'Wavy'], ['ponytail', 'Ponytail'], ['pigtails', 'Pigtails'], ['bob', 'Bob'], ['buns', 'Buns'], ['braids', 'Braids'], ['hijab', 'Hijab'], ['bald', 'None']],
     hairColor: [['#2B1B14', 'Black'], ['#5A3825', 'Brown'], ['#A0642D', 'Chestnut'], ['#E3B55B', 'Blonde'], ['#C2452D', 'Red'], ['#B9A6E8', 'Lilac'], ['#F28DB2', 'Pink'], ['#9AA0A6', 'Grey']],
     eyes: [['round', 'Round'], ['happy', 'Happy'], ['wink', 'Wink'], ['sparkle', 'Sparkle'], ['sleepy', 'Sleepy'], ['hearts', 'Heart eyes']],
     mouth: [['smile', 'Smile'], ['grin', 'Grin'], ['laugh', 'Laugh'], ['small', 'Soft'], ['tongue', 'Cheeky'], ['o', 'Wow']],
-    outfit: [['tee', 'T-shirt'], ['hoodie', 'Hoodie'], ['sweater', 'XMAS sweater'], ['shirt', 'Collar shirt'], ['dress', 'Dress'], ['overalls', 'Overalls']],
+    outfit: [['tee', 'T-shirt'], ['polo', 'Polo'], ['shirt', 'Collar shirt'], ['blouse', 'Blouse'], ['hoodie', 'Hoodie'], ['jacket', 'Jacket'], ['cardigan', 'Cardigan'],
+      ['suit', 'Suit'], ['jersey', 'Sports jersey'], ['sweater', 'XMAS sweater'], ['dress', 'Dress'], ['overalls', 'Overalls']],
     outfitColor: [['#F06292', 'Pink'], ['#E53935', 'Red'], ['#FFB74D', 'Orange'], ['#FDD835', 'Yellow'], ['#66BB6A', 'Green'], ['#4FC3F7', 'Sky'], ['#5C6BC0', 'Indigo'], ['#FFFFFF', 'White'], ['#37474F', 'Charcoal']],
     accessory: [['none', 'None'], ['glasses', 'Glasses'], ['sunglasses', 'Shades'], ['santa', 'Santa hat'], ['antlers', 'Antlers'], ['halo', 'Halo'],
       ['bow', 'Bow'], ['flower', 'Flower'], ['cap', 'Cap'], ['scarf', 'Scarf'], ['headphones', 'Headphones']],
@@ -18,7 +20,7 @@
 
   const DEFAULTS = {
     boy: { base: 'boy', skin: '#F6CBA5', hair: 'short', hairColor: '#2B1B14', eyes: 'round', mouth: 'smile', outfit: 'hoodie', outfitColor: '#4FC3F7', accessory: 'none', pose: 'wave', background: 'sky' },
-    girl: { base: 'girl', skin: '#F6CBA5', hair: 'long', hairColor: '#5A3825', eyes: 'sparkle', mouth: 'smile', outfit: 'dress', outfitColor: '#F06292', accessory: 'bow', pose: 'heart', background: 'blush' },
+    girl: { base: 'girl', skin: '#F6CBA5', hair: 'long', hairColor: '#5A3825', eyes: 'sparkle', mouth: 'smile', outfit: 'cardigan', outfitColor: '#FFB74D', accessory: 'flower', pose: 'heart', background: 'mint' },
   };
 
   function shade(hex, amt) {
@@ -60,6 +62,11 @@
       ponytail: `<path d="M140 70 Q178 80 168 140 Q162 170 150 176 Q156 140 146 104 Z" fill="${hc}"/>`,
       braids: [0, 1, 2, 3, 4].map(i => `<circle cx="54" cy="${118 + i * 14}" r="9" fill="${i % 2 ? hcD : hc}"/><circle cx="146" cy="${118 + i * 14}" r="9" fill="${i % 2 ? hcD : hc}"/>`).join(''),
       buns: `<circle cx="62" cy="50" r="19" fill="${hc}"/><circle cx="138" cy="50" r="19" fill="${hc}"/>`,
+      afro: `<circle cx="100" cy="72" r="62" fill="${hc}"/>`,
+      manbun: `<circle cx="100" cy="34" r="16" fill="${hc}"/><path d="M90 46 H110" stroke="${hcD}" stroke-width="4"/>`,
+      wavy: `<path d="M50 92 Q40 38 100 38 Q160 38 150 92 Q166 120 152 140 Q166 162 150 182 Q100 192 50 182 Q34 162 48 140 Q34 120 50 92Z" fill="${hc}"/>`,
+      pigtails: `<ellipse cx="40" cy="112" rx="14" ry="28" fill="${hc}" transform="rotate(-20 40 112)"/><ellipse cx="160" cy="112" rx="14" ry="28" fill="${hc}" transform="rotate(20 160 112)"/><circle cx="50" cy="88" r="5" fill="#F2A93B"/><circle cx="150" cy="88" r="5" fill="#F2A93B"/>`,
+      hijab: `<path d="M100 30 Q158 30 156 96 Q158 140 152 162 L48 162 Q42 140 44 96 Q42 30 100 30Z" fill="${hc}"/>`,
     };
     if (backHair[a.hair]) p.push(backHair[a.hair]);
 
@@ -79,6 +86,12 @@
       if (a.outfit === 'tee') p.push(`<path d="M84 150 Q100 166 116 150" fill="${skin}"/>`);
       if (a.outfit === 'hoodie') p.push(`<path d="M76 150 Q100 176 124 150 Q100 160 76 150Z" fill="${ocD}"/><path d="M86 158 L84 182 M114 158 L116 182" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><path d="M74 210 H126 L120 232 H80Z" fill="${ocD}"/>`);
       if (a.outfit === 'sweater') p.push(`<path d="M86 150 Q100 160 114 150" fill="${ocD}"/><path d="M${girl ? 58 : 50} 196 ${Array.from({ length: 13 }, (_, i) => `L${(girl ? 58 : 50) + (i + 1) * (girl ? 6.6 : 7.7)} ${i % 2 ? 196 : 206}`).join(' ')}" stroke="#fff" stroke-width="3" fill="none"/>` + [[80, 176], [100, 172], [120, 176], [90, 224], [112, 224]].map(([x, y]) => `<path d="M${x - 4} ${y} H${x + 4} M${x} ${y - 4} V${y + 4} M${x - 3} ${y - 3} L${x + 3} ${y + 3} M${x + 3} ${y - 3} L${x - 3} ${y + 3}" stroke="#fff" stroke-width="1.6"/>`).join(''));
+      if (a.outfit === 'polo') p.push(`<path d="M86 150 Q100 160 114 150" fill="${skin}"/><path d="M84 148 L98 160 L90 168 L80 152Z M116 148 L102 160 L110 168 L120 152Z" fill="${ocD}"/><path d="M100 160 V184" stroke="${ocD}" stroke-width="2"/><circle cx="100" cy="170" r="2" fill="#fff"/><circle cx="100" cy="179" r="2" fill="#fff"/>`);
+      if (a.outfit === 'blouse') p.push(`<path d="M86 150 Q100 162 114 150" fill="${skin}"/><path d="M84 150 Q84 168 99 164 L100 156Z M116 150 Q116 168 101 164 L100 156Z" fill="#fff" stroke="${ocD}" stroke-width="1.5"/><circle cx="100" cy="176" r="2" fill="${ocD}"/><circle cx="100" cy="190" r="2" fill="${ocD}"/>`);
+      if (a.outfit === 'jacket') p.push(`<path d="M88 150 L112 150 L108 240 L92 240Z" fill="#F1F3F2"/><path d="M88 150 L94 176 L92 240 M112 150 L106 176 L108 240" stroke="${ocD}" stroke-width="3" fill="none"/><rect x="66" y="196" width="18" height="4" rx="2" fill="${ocD}"/><rect x="116" y="196" width="18" height="4" rx="2" fill="${ocD}"/>`);
+      if (a.outfit === 'cardigan') p.push(`<path d="M86 150 L114 150 L106 240 L94 240Z" fill="#FFFFFF"/><path d="M86 150 Q100 160 114 150" fill="${skin}"/><path d="M86 150 L96 190 L94 240 M114 150 L104 190 L106 240" stroke="${ocD}" stroke-width="2.5" fill="none"/>` + [178, 198, 218].map(y => `<circle cx="92" cy="${y}" r="2.4" fill="${ocD}"/>`).join(''));
+      if (a.outfit === 'suit') p.push(`<path d="M86 150 L100 196 L114 150Z" fill="#FFFFFF"/><path d="M96 158 L104 158 L102 166 L106 196 L100 204 L94 196 L98 166Z" fill="#C62828"/><path d="M84 148 L100 200 L90 176 L80 156Z M116 148 L100 200 L110 176 L120 156Z" fill="${ocD}"/><circle cx="100" cy="214" r="2.5" fill="${ocD}"/><circle cx="100" cy="228" r="2.5" fill="${ocD}"/>`);
+      if (a.outfit === 'jersey') p.push(`<path d="M86 150 L100 168 L114 150" fill="${skin}" stroke="#fff" stroke-width="4"/><text x="100" y="214" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="34" fill="#fff" stroke="${ocD}" stroke-width="1.5">7</text><path d="M${girl ? 58 : 50} 232 H${girl ? 144 : 152}" stroke="#fff" stroke-width="4"/>`);
       if (a.outfit === 'shirt') p.push(`<path d="M86 150 L100 164 L114 150" fill="${skin}"/><path d="M84 148 L100 166 L92 172 L80 154Z M116 148 L100 166 L108 172 L120 154Z" fill="#fff"/><path d="M100 166 V240" stroke="${ocD}" stroke-width="2"/>` + [182, 200, 218].map(y => `<circle cx="104" cy="${y}" r="2" fill="${ocD}"/>`).join(''));
     }
 
@@ -149,6 +162,14 @@
       bob: `<path d="M52 92 Q50 44 100 42 Q150 44 148 92 L146 76 Q100 62 54 76 Z" fill="${hc}"/>`,
       buns: bangs,
       braids: bangs + `<circle cx="54" cy="180" r="5" fill="#FF6FA0"/><circle cx="146" cy="180" r="5" fill="#FF6FA0"/>`,
+      quiff: `<path d="M52 92 Q48 46 90 40 Q112 20 142 34 Q156 48 148 92 Q140 62 116 60 Q96 70 76 60 Q58 66 52 92Z" fill="${hc}"/>`,
+      mohawk: `<path d="M54 88 Q56 48 100 46 Q144 48 146 88 Q130 60 100 58 Q70 60 54 88Z" fill="${hc}" opacity=".45"/><path d="M86 62 Q84 30 92 12 L100 20 L108 12 Q116 30 114 62 Q100 56 86 62Z" fill="${hc}"/>`,
+      manbun: `<path d="M52 92 Q48 42 100 40 Q152 42 148 92 Q144 70 132 62 Q100 54 68 62 Q56 70 52 92Z" fill="${hc}"/>`,
+      afro: `<path d="M54 84 Q56 50 100 48 Q144 50 146 84 Q130 64 100 64 Q70 64 54 84Z" fill="${hc}"/>`,
+      pixie: `<path d="M52 96 Q46 44 100 40 Q156 44 148 92 Q150 70 140 62 Q120 80 90 70 Q72 66 60 82 Q56 88 52 96Z" fill="${hc}"/>`,
+      wavy: `<path d="M52 96 Q48 44 100 42 Q152 44 148 96 Q140 64 116 60 Q84 72 60 74 Q54 84 52 96Z" fill="${hc}"/>`,
+      pigtails: bangs,
+      hijab: `<path fill-rule="evenodd" d="M100 34 Q154 34 154 96 L154 134 L46 134 L46 96 Q46 34 100 34Z M100 54 C76 54 62 72 62 96 C62 122 80 138 100 138 C120 138 138 122 138 96 C138 72 124 54 100 54Z" fill="${hc}"/><path d="M62 96 C62 72 76 54 100 54 C124 54 138 72 138 96" stroke="${hcD}" stroke-width="2" fill="none"/>`,
       bald: '',
     };
     p.push(front[a.hair] || '');

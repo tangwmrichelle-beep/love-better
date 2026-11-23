@@ -6,7 +6,7 @@
   if (tg) { tg.ready(); tg.expand(); }
   const dark = tg && tg.initData ? tg.colorScheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
   if (dark) document.documentElement.dataset.theme = 'dark';
-  if (tg && tg.setHeaderColor) { try { tg.setHeaderColor(dark ? '#1B1416' : '#FFF7F2'); tg.setBackgroundColor(dark ? '#1B1416' : '#FFF7F2'); } catch (e) { } }
+  if (tg && tg.setHeaderColor) { try { tg.setHeaderColor(dark ? '#131A1B' : '#F4F6F3'); tg.setBackgroundColor(dark ? '#131A1B' : '#F4F6F3'); } catch (e) { } }
 
   const $ = (s, el = document) => el.querySelector(s);
   const view = $('#view');
@@ -15,7 +15,7 @@
   const WHO = {
     stranger: { e: '🌍', label: 'Someone I don’t know', short: 'a stranger', color: '#3B8ED8' },
     friend: { e: '🤗', label: 'A friend', short: 'a friend', color: '#F5B82E' },
-    cg: { e: '⛪', label: 'Someone in CG', short: 'someone in CG', color: '#E8467C' },
+    cg: { e: '⛪', label: 'Someone in CG', short: 'someone in CG', color: '#217A78' },
   };
 
   const state = { me: null, tab: 'home', groupSeg: 'feed', boardPeriod: 'all', missions: null, tasks: null, countdownTimer: null };
@@ -37,7 +37,7 @@
     const fx = $('#fx');
     for (let i = 0; i < n; i++) {
       const s = document.createElement('span');
-      s.textContent = ['💖', '⭐', '💕', '✨', '💗'][i % 5];
+      s.textContent = ['⭐', '✨', '💛', '💙', '💚'][i % 5];
       s.style.left = Math.random() * 100 + 'vw';
       s.style.animationDelay = Math.random() * 0.5 + 's';
       fx.appendChild(s); setTimeout(() => s.remove(), 2600);
@@ -51,7 +51,7 @@
     if (s < 7 * 86400) return Math.floor(s / 86400) + 'd ago';
     return new Date(ts).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' });
   }
-  const face = (avatar, size) => Avatar.render(avatar || { base: 'boy', background: 'blush' }, { face: true, size });
+  const face = (avatar, size) => Avatar.render(avatar || { base: 'boy', background: 'mint' }, { face: true, size });
 
   // ---------------- boot ----------------
   async function boot() {
@@ -69,7 +69,7 @@
   }
 
   function renderJoin() {
-    view.innerHTML = `<div class="join"><div style="font-size:56px">💖</div><h2>Welcome to Love Better</h2>
+    view.innerHTML = `<div class="join"><div style="font-size:56px">💛</div><h2>Welcome to Love Better</h2>
       <p class="muted" style="margin-top:6px">Type the join code your CG leader gave you.</p>
       <input type="text" id="code" placeholder="Join code" autocomplete="off">
       <button class="btn block" id="joinBtn">Join</button></div>`;
@@ -95,14 +95,14 @@
     return state.me.countdown.map((e, i) => {
       const ms = new Date(e.date).getTime() - Date.now();
       let big, sub;
-      if (ms <= 0 && ms > -86400000) { big = 'Today!'; sub = 'Go love big 🎉'; }
+      if (ms <= 0 && ms > -86400000) { big = 'Today!'; sub = e.key === 'newyear' ? 'Happy New Year! 🎉' : 'Go love big 🎉'; }
       else if (ms <= 0) { big = '✔'; sub = 'Thank you!'; }
       else {
         const d = Math.floor(ms / 86400000), h = Math.floor(ms / 3600000) % 24, m = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60;
         big = `${d}<small> day${d === 1 ? '' : 's'}</small>`; sub = `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
       }
       const date = new Date(e.date).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Singapore' });
-      return `<div class="cd ${i ? 'day2' : ''}"><span class="flake">${i ? '⭐' : '🎄'}</span><div class="t">${esc(e.title)}</div><div class="d">${big}</div><div class="hms">${sub}</div><div class="small" style="opacity:.75;margin-top:4px">${date}</div></div>`;
+      return `<div class="cd c${i}"><span class="flake">${esc(e.emoji || '🎄')}</span><div class="t">${esc(e.title)}</div><div class="d">${big}</div><div class="hms">${sub}</div><div class="small" style="opacity:.75;margin-top:4px">${date}</div></div>`;
     }).join('');
   }
 
@@ -113,16 +113,16 @@
     view.innerHTML = `
       <div class="hello">
         <button class="av" id="editAv" aria-label="Edit avatar">${face(me.user.avatar)}</button>
-        <div><p class="muted small" style="font-weight:800">${greeting()}</p><h1>${esc(me.user.name)}</h1><p class="muted small">Let’s love someone well today 💖</p></div>
+        <div><p class="muted small" style="font-weight:800">${greeting()}</p><h1>${esc(me.user.name)}</h1><p class="muted small">Let’s love someone well today 💛</p></div>
       </div>
       <div class="card stars-card">
         <div><b>${s.totalStars}⭐</b><span>My stars</span></div>
         <div><b>${s.streak}🔥</b><span>Day streak</span></div>
         <div><b>#${s.rank || '-'}</b><span>of ${s.members}</span></div>
       </div>
-      <button class="btn block" id="quickLog" style="margin-bottom:14px">💖 I loved someone today</button>
+      <button class="btn block" id="quickLog" style="margin-bottom:14px">💛 I loved someone today</button>
       <div class="card verse"><p>“${esc(me.verse.text)}”</p><p class="ref">${esc(me.verse.ref)}</p></div>
-      <div class="section-title"><h3>Countdown to XMAS service</h3></div>
+      <div class="section-title"><h3>Countdowns</h3></div>
       <div class="countdown" id="cd">${countdownHTML()}</div>
       <div class="section-title"><h3>Our group goal</h3><span class="muted small">${g.members} of us</span></div>
       <div class="card">
@@ -165,7 +165,7 @@
         <span class="pill">+${p.stars}⭐</span></div>
       ${desc}
       <div class="meta">${link}</div>
-      <div class="actions"><button class="cheer ${p.cheered ? 'on' : ''}" data-cheer>${p.cheered ? '💖' : '🤍'} ${p.cheers || ''} <span class="small">${p.cheered ? 'Cheered' : 'Cheer'}</span></button>
+      <div class="actions"><button class="cheer ${p.cheered ? 'on' : ''}" data-cheer>${p.cheered ? '💛' : '🤍'} ${p.cheers || ''} <span class="small">${p.cheered ? 'Cheered' : 'Cheer'}</span></button>
         ${p.mine || state.me.isAdmin ? `<button class="del" data-del>Delete</button>` : ''}</div>
     </div>`;
   }
@@ -175,7 +175,7 @@
       const card = b.closest('.post'); haptic();
       const r = await api(`/acts/${card.dataset.id}/cheer`, { method: 'POST' });
       b.classList.toggle('on', r.cheered);
-      b.innerHTML = `${r.cheered ? '💖' : '🤍'} ${r.cheers || ''} <span class="small">${r.cheered ? 'Cheered' : 'Cheer'}</span>`;
+      b.innerHTML = `${r.cheered ? '💛' : '🤍'} ${r.cheers || ''} <span class="small">${r.cheered ? 'Cheered' : 'Cheer'}</span>`;
     });
     root.querySelectorAll('[data-del]').forEach(b => b.onclick = () => confirmThen('Delete this act? Its stars will be removed.', async () => {
       const card = b.closest('.post');
@@ -200,7 +200,7 @@
       <div class="section-title"><h3>✨ Missions for everyone</h3></div>
       <div id="missionList"><div class="muted small">Loading…</div></div>
       ${state.me.isAdmin ? `<div class="card admin"><h3>Admin: add a mission</h3>
-        <div style="display:flex;gap:8px;margin-top:10px"><input type="text" id="mEmoji" value="💖" style="width:64px;text-align:center"><input type="text" id="mTitle" placeholder="Mission title"></div>
+        <div style="display:flex;gap:8px;margin-top:10px"><input type="text" id="mEmoji" value="💛" style="width:64px;text-align:center"><input type="text" id="mTitle" placeholder="Mission title"></div>
         <textarea id="mDesc" placeholder="Short description (optional)" style="margin-top:8px;min-height:60px"></textarea>
         <button class="btn block" id="addMission" style="margin-top:8px">Add mission</button></div>` : ''}`;
     $('#addTask').onclick = async () => {
@@ -214,7 +214,7 @@
     state.missions = await api('/missions');
     if (state.tab !== 'missions') return;
     $('#missionList').innerHTML = state.missions.map(m => `<div class="card mission">
-      <div class="emoji">${esc(m.emoji || '💖')}</div>
+      <div class="emoji">${esc(m.emoji || '💛')}</div>
       <div class="grow"><h3>${esc(m.title)}</h3>${m.description ? `<p>${esc(m.description)}</p>` : ''}
         <div class="foot"><button class="btn small" data-mission="${m.id}">I did it!</button>
           ${m.mine ? `<span class="pill">✔ You: ${m.mine}×</span>` : ''}<span class="muted small">${m.everyone} done in group</span>
@@ -242,7 +242,7 @@
     const openTasks = (state.tasks || []).filter(t => t.user.id === state.me.user.id && !t.doneAt);
     const linked = link.mission ? `${link.mission.emoji || '🎯'} ${link.mission.title}` : link.task ? `🎯 ${link.task.title}` : '';
     openSheet(`
-      <div class="sheet-head"><h2>Log an act of love 💖</h2><button class="x" data-close>✕</button></div>
+      <div class="sheet-head"><h2>Log an act of love 💛</h2><button class="x" data-close>✕</button></div>
       ${linked ? `<div class="linked" style="margin-top:10px"><span>${esc(linked)}</span></div>` : ''}
       <label class="lbl" for="desc">What did you do?</label>
       <textarea id="desc" maxlength="500" placeholder="e.g. Bought kopi for the cleaner auntie and thanked her">${link.task ? esc(link.task.title) : link.mission ? esc(link.mission.title) : ''}</textarea>
@@ -349,9 +349,9 @@
       <div class="card"><label class="check" style="margin:0"><input type="checkbox" id="notify" ${me.user.notify ? 'checked' : ''}> Get announcements from the admin</label></div>
       ${me.isAdmin ? `<div class="card admin"><h3>📣 Admin: message everyone</h3>
         <p class="muted small" style="margin:6px 0 10px">This is sent as a Telegram message from the bot to every member.</p>
-        <textarea id="bcast" maxlength="3500" placeholder="e.g. Hi fam! 2 weeks to XMAS service. Who will you invite this week? Let’s go love better 💖"></textarea>
+        <textarea id="bcast" maxlength="3500" placeholder="e.g. Hi fam! 2 weeks to XMAS service. Who will you invite this week? Let’s go love better 💛"></textarea>
         <button class="btn block" id="sendB" style="margin-top:8px">Send to everyone</button></div>` : ''}
-      <p class="muted small" style="text-align:center;margin-top:18px">${esc(me.appName)} · made with 💖</p>`;
+      <p class="muted small" style="text-align:center;margin-top:18px">${esc(me.appName)} · made with 💛</p>`;
     $('#editAv').onclick = $('#editAv2').onclick = () => openAvatarEditor();
     $('#notify').onchange = async e => { await api('/profile', { method: 'POST', body: { notify: e.target.checked } }); toast(e.target.checked ? 'Announcements on 🔔' : 'Announcements off 🔕'); };
     if (me.isAdmin) $('#sendB').onclick = () => {
@@ -367,7 +367,7 @@
 
   // ---------------- avatar editor ----------------
   const EDIT_TABS = [
-    ['base', 'Boy / Girl'], ['skin', 'Skin'], ['hair', 'Hair'], ['hairColor', 'Hair colour'], ['eyes', 'Eyes'], ['mouth', 'Mouth'],
+    ['base', 'Male / Female'], ['skin', 'Skin'], ['hair', 'Hair'], ['hairColor', 'Hair colour'], ['eyes', 'Eyes'], ['mouth', 'Mouth'],
     ['outfit', 'Clothes'], ['outfitColor', 'Clothes colour'], ['accessory', 'Accessories'], ['pose', 'Pose'], ['background', 'Background'],
   ];
   const SWATCH = ['skin', 'hairColor', 'outfitColor'];

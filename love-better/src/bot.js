@@ -17,9 +17,9 @@ const whoKeyboard = () => new InlineKeyboard()
 
 function countdownText() {
   return svc.countdown().map(e => {
-    if (e.ms <= 0 && e.ms > -24 * 3600 * 1000) return `🎄 <b>${esc(e.title)}</b> is TODAY!`;
-    if (e.ms <= 0) return `🎄 <b>${esc(e.title)}</b> has passed. Thank you for loving well!`;
-    return `🎄 <b>${esc(e.title)}</b> (${new Date(e.date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', timeZone: 'Asia/Singapore' })}): <b>${Math.floor(e.ms / 864e5)}</b> days, ${Math.floor(e.ms / 36e5) % 24} hrs to go`;
+    if (e.ms <= 0 && e.ms > -24 * 3600 * 1000) return `${e.emoji} <b>${esc(e.title)}</b> is TODAY!`;
+    if (e.ms <= 0) return `${e.emoji} <b>${esc(e.title)}</b> has passed. Thank you for loving well!`;
+    return `${e.emoji} <b>${esc(e.title)}</b> (${new Date(e.date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', timeZone: 'Asia/Singapore' })}): <b>${Math.floor(e.ms / 864e5)}</b> days, ${Math.floor(e.ms / 36e5) % 24} hrs to go`;
   }).join('\n');
 }
 
@@ -163,7 +163,7 @@ async function startBot() {
     { command: 'log', description: 'Log an act of love: /log what you did' },
     { command: 'stars', description: 'My stars and stats' },
     { command: 'leaderboard', description: 'Top 10' },
-    { command: 'countdown', description: 'Days to XMAS service' },
+    { command: 'countdown', description: 'Days to XMAS service and New Year' },
     { command: 'verse', description: 'Verse of the day' },
     { command: 'mute', description: 'Stop announcements' },
   ]);
