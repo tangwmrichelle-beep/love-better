@@ -48,6 +48,16 @@ async function init() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS gender_locked INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded INTEGER NOT NULL DEFAULT 0;
     CREATE UNIQUE INDEX IF NOT EXISTS users_handle ON users (LOWER(handle));
+    CREATE TABLE IF NOT EXISTS stories (
+      id SERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL, created_at BIGINT NOT NULL);
+    CREATE TABLE IF NOT EXISTS story_photos (
+      id SERIAL PRIMARY KEY, story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+      token TEXT NOT NULL, mime TEXT NOT NULL, data BYTEA NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS story_photos_story ON story_photos(story_id);
+    CREATE TABLE IF NOT EXISTS story_likes (
+      story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (story_id, user_id));
   `);
   if ((await get('SELECT COUNT(*) n FROM missions')).n === 0) {
     const now = Date.now();

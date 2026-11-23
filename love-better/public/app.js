@@ -322,7 +322,7 @@
   async function renderGroup() {
     const seg = state.groupSeg;
     view.innerHTML = `<h2 style="margin:4px 4px 12px">Loving together</h2>
-      <div class="seg">${[['feed', '💌 Feed'], ['goals', '🎯 Goals'], ['board', '🏆 Ranks']].map(([k, l]) => `<button data-seg="${k}" class="${seg === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="seg">${[['feed', '💌 Feed'], ['stories', '📖 Stories'], ['goals', '🎯 Goals'], ['board', '🏆 Ranks']].map(([k, l]) => `<button data-seg="${k}" class="${seg === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="groupBody"><div class="muted small">Loading…</div></div>`;
     view.querySelectorAll('[data-seg]').forEach(b => b.onclick = () => { state.groupSeg = b.dataset.seg; haptic(); renderGroup(); });
     const body = $('#groupBody');
@@ -330,6 +330,12 @@
       const feed = await api('/feed');
       body.innerHTML = feed.length ? feed.map(postHTML).join('') : emptyFeed();
       bindPosts(body);
+    } else if (seg === 'stories') {
+      const list = await api('/stories');
+      body.innerHTML = `<button class="btn block" id="newStory" style="margin-bottom:14px">📸 Share a story</button>` +
+        (list.length ? list.map(storyHTML).join('') : `<div class="card empty"><div>📖</div>No stories yet. Share how God used a small act of love!</div>`);
+      $('#newStory').onclick = openStoryComposer;
+      bindStories(body);
     } else if (seg === 'goals') {
       const tasks = await api('/tasks');
       state.tasks = tasks;
@@ -346,6 +352,83 @@
       $('#board').innerHTML = rows.length ? rows.map(boardRow).join('') : '<p class="muted">No one here yet.</p>';
     }
   }
+  // ---------------- stories ----------------
+  function storyHTML(st) {
+    const n = st.photos.length;
+    const pics = n ? `<div class="photos p${Math.min(n, 4)}">${st.photos.map(u => `<img src="${esc(u)}" alt="" loading="lazy" data-full="${esc(u)}">`).join('')}</div>` : '';
+    return `<div class="card post story" data-id="${st.id}">
+      <div class="top"><div class="mini-av">${face(st.user.avatar)}</div>
+        <div class="grow"><b>${esc(st.user.name)}</b>${handleTag(st.user)}<div class="muted small">shared a story · ${ago(st.createdAt)}</div></div></div>
+      <p class="desc">${esc(st.body)}</p>${pics}
+      <div class="actions"><button class="cheer ${st.liked ? 'on' : ''}" data-like>${st.liked ? '💛' : '🤍'} ${st.likes || ''} <span class="small">Inspired</span></button>
+        ${st.mine || state.me.isAdmin ? `<button class="del" data-delstory>Delete</button>` : ''}</div></div>`;
+  }
+  function bindStories(root) {
+    root.querySelectorAll('[data-like]').forEach(b => b.onclick = async () => {
+      const id = b.closest('.story').dataset.id; haptic();
+      const r = await api(`/stories/${id}/like`, { method: 'POST' });
+      b.classList.toggle('on', r.liked);
+      b.innerHTML = `${r.liked ? '💛' : '🤍'} ${r.likes || ''} <span class="small">Inspired</span>`;
+    });
+    root.querySelectorAll('[data-delstory]').forEach(b => b.onclick = () => confirmThen('Delete this story and its photos?', async () => {
+      const card = b.closest('.story'); await api('/stories/' + card.dataset.id, { method: 'DELETE' }); card.remove(); toast('Deleted');
+    }));
+    root.querySelectorAll('[data-full]').forEach(img => img.onclick = () => {
+      const v = document.createElement('div'); v.className = 'viewer'; v.innerHTML = `<img src="${img.dataset.full}" alt="">`;
+      v.onclick = () => v.remove(); document.body.appendChild(v);
+    });
+  }
+  // Shrinks photos on the phone before upload (max 1280px, JPEG) so they load fast and stay small.
+  function shrinkPhoto(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => reject(new Error('Could not read that photo'));
+      img.src = url;
+    });
+  }
+  function openStoryComposer() {
+    const photos = [];
+    openSheet(`
+      <div class="sheet-head"><h2>Share a story 📖</h2><button class="x" data-close>✕</button></div>
+      <p class="muted small" style="margin-top:4px">How did loving someone (or being loved) inspire you? Everyone in the group will see this.</p>
+      <label class="lbl" for="stText">Your story</label>
+      <textarea id="stText" maxlength="2000" style="min-height:130px" placeholder="e.g. I bought lunch for the uncle who sweeps our block. He told me no one had ever asked his name before…"></textarea>
+      <label class="lbl">Photos (up to 4, optional)</label>
+      <div class="photo-pick" id="picks"></div>
+      <input type="file" id="file" accept="image/*" multiple hidden>
+      <p class="muted small" style="margin-top:8px">Please ask before posting photos of other people 🙏</p>
+      <button class="btn block" id="postStory" style="margin-top:14px">Share with the group</button>`);
+    const drawPicks = () => {
+      $('#picks').innerHTML = photos.map((p, i) => `<div class="pick"><img src="${p}" alt=""><button data-rm="${i}" aria-label="Remove">✕</button></div>`).join('') +
+        (photos.length < 4 ? `<button class="pick add" id="addPic">＋<span>Add photo</span></button>` : '');
+      $('#picks').querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { photos.splice(Number(b.dataset.rm), 1); drawPicks(); });
+      const add = $('#addPic'); if (add) add.onclick = () => $('#file').click();
+    };
+    $('#file').onchange = async e => {
+      for (const f of [...e.target.files].slice(0, 4 - photos.length)) {
+        try { photos.push(await shrinkPhoto(f)); } catch (err) { toast(err.message); }
+      }
+      e.target.value = ''; drawPicks();
+    };
+    drawPicks();
+    $('#postStory').onclick = async () => {
+      const text = $('#stText').value.trim();
+      if (!text) { toast('Write a few words about your story'); return; }
+      const b = $('#postStory'); b.disabled = true; b.textContent = 'Sharing…';
+      try {
+        await api('/stories', { method: 'POST', body: { text, photos } });
+        closeSheet(); hearts(); toast('Story shared! Thank you for inspiring us 💛', 3000);
+        state.groupSeg = 'stories'; go('group');
+      } catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Share with the group'; }
+    };
+  }
+
   function boardRow(r, i) {
     const medal = ['🥇', '🥈', '🥉'][i];
     const me = r.id === state.me.user.id;

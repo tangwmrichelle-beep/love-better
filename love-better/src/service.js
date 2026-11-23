@@ -222,10 +222,60 @@ function countdown() {
   });
 }
 
+// ---------- Stories (photos are stored in the database, so nothing is lost when the free server restarts) ----------
+const MAX_PHOTOS = 4, MAX_PHOTO_BYTES = 1.5 * 1024 * 1024;
+async function addStory(userId, { text, photos }) {
+  const body = String(text || '').trim().slice(0, 2000);
+  if (!body) throw new Error('Write a few words about your story.');
+  photos = Array.isArray(photos) ? photos.slice(0, MAX_PHOTOS) : [];
+  const decoded = photos.map(p => {
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(p));
+    if (!m) throw new Error('Photos must be JPG, PNG or WebP.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > MAX_PHOTO_BYTES) throw new Error('One of the photos is too big.');
+    return { mime: m[1], buf };
+  });
+  const story = await db.get('INSERT INTO stories (user_id, body, created_at) VALUES (?,?,?) RETURNING *', [userId, body, Date.now()]);
+  for (const [i, ph] of decoded.entries())
+    await db.run('INSERT INTO story_photos (story_id, token, mime, data, position) VALUES (?,?,?,?,?)',
+      [story.id, require('crypto').randomBytes(12).toString('hex'), ph.mime, ph.buf, i]);
+  return story;
+}
+
+async function stories(viewerId, limit = 30) {
+  const rows = await db.all(`
+    SELECT s.*, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender,
+      (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) likes,
+      (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id AND l.user_id = ?) liked
+    FROM stories s JOIN users u ON u.id = s.user_id ORDER BY s.id DESC LIMIT ?`, [viewerId, limit]);
+  const photos = rows.length ? await db.all(`SELECT id, story_id, token FROM story_photos WHERE story_id = ANY(?::int[]) ORDER BY position`, [rows.map(r => r.id)]) : [];
+  return rows.map(r => ({
+    id: r.id, body: r.body, createdAt: r.created_at, likes: r.likes, liked: !!r.liked, mine: r.user_id === viewerId,
+    user: publicUser({ id: r.user_id, display_name: r.display_name, first_name: r.first_name, username: r.username, avatar: r.avatar, real_name: r.real_name, handle: r.handle, gender: r.gender }),
+    photos: photos.filter(p => p.story_id === r.id).map(p => `/photos/${p.id}-${p.token}`),
+  }));
+}
+
+async function deleteStory(userId, storyId) {
+  const s = await db.get('SELECT user_id FROM stories WHERE id = ?', [storyId]);
+  if (!s || (s.user_id !== userId && !config.isAdmin(userId))) return false;
+  await db.run('DELETE FROM stories WHERE id = ?', [storyId]);
+  return true;
+}
+
+async function toggleStoryLike(userId, storyId) {
+  if (!(await db.get('SELECT id FROM stories WHERE id = ?', [storyId]))) return null;
+  const removed = await db.run('DELETE FROM story_likes WHERE story_id = ? AND user_id = ?', [storyId, userId]);
+  if (!removed) await db.run('INSERT INTO story_likes (story_id, user_id) VALUES (?,?) ON CONFLICT DO NOTHING', [storyId, userId]);
+  return { liked: !removed, likes: (await db.get('SELECT COUNT(*) n FROM story_likes WHERE story_id = ?', [storyId])).n };
+}
+
+const getPhoto = (id, token) => db.get('SELECT mime, data FROM story_photos WHERE id = ? AND token = ?', [id, token]);
+
 const recipients = () => db.all('SELECT * FROM users WHERE approved = 1 AND notify = 1');
 
 module.exports = {
   RECIPIENT_LABEL, nameOf, upsertUser, getUser, tryJoinCode, publicUser, logAct, deleteAct, userStats, groupStats,
   leaderboard, feed, toggleCheer, missions, addMission, archiveMission, tasks, addTask, deleteTask, updateProfile, onboard, genderForName,
-  setNotify, logBroadcast, verseOfTheDay, countdown, recipients,
+  setNotify, logBroadcast, addStory, stories, deleteStory, toggleStoryLike, getPhoto, verseOfTheDay, countdown, recipients,
 };

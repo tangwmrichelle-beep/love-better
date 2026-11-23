@@ -6,10 +6,21 @@ const { verifyInitData } = require('./auth');
 
 function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
   const app = express();
+  app.use('/api/stories', express.json({ limit: '8mb' })); // stories can carry up to 4 photos
   app.use(express.json({ limit: '100kb' }));
   if (webhookHandler) app.post(webhookPath, webhookHandler());
   app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
   app.get('/health', (req, res) => res.json({ ok: true }));
+  // Story photos. The random token in the address keeps them private to people who can see the story.
+  app.get('/photos/:key', async (req, res) => {
+    const m = /^(\d+)-([a-f0-9]{24})$/.exec(req.params.key);
+    if (!m) return res.status(404).end();
+    try {
+      const p = await svc.getPhoto(Number(m[1]), m[2]);
+      if (!p) return res.status(404).end();
+      res.set('Content-Type', p.mime).set('Cache-Control', 'private, max-age=31536000, immutable').send(p.data);
+    } catch (e) { res.status(500).end(); }
+  });
 
   // Who is calling? Telegram signs the mini app data, we check that signature.
   const api = express.Router();
@@ -63,6 +74,10 @@ function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
   api.post('/missions', adminOnly, wrap(async req => { await svc.addMission(req.user.id, req.body); }));
   api.delete('/missions/:id', adminOnly, wrap(async req => { await svc.archiveMission(Number(req.params.id)); }));
   api.get('/tasks', wrap(() => svc.tasks()));
+  api.get('/stories', wrap(req => svc.stories(req.user.id)));
+  api.post('/stories', wrap(async req => { await svc.addStory(req.user.id, req.body); }));
+  api.delete('/stories/:id', wrap(async req => { if (!(await svc.deleteStory(req.user.id, Number(req.params.id)))) throw new Error('Not allowed'); }));
+  api.post('/stories/:id/like', wrap(req => svc.toggleStoryLike(req.user.id, Number(req.params.id))));
   api.post('/tasks', wrap(req => svc.addTask(req.user.id, req.body.title)));
   api.delete('/tasks/:id', wrap(async req => { if (!(await svc.deleteTask(req.user.id, Number(req.params.id)))) throw new Error('Not allowed'); }));
 
