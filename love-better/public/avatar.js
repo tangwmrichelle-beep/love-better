@@ -5,7 +5,7 @@
     skin: [['#FFE0C7', 'Fair'], ['#F6CBA5', 'Light'], ['#E8B48A', 'Tan'], ['#C98E5F', 'Caramel'], ['#9C6640', 'Brown'], ['#6B4228', 'Deep']],
     hair: [['short', 'Short'], ['spiky', 'Spiky'], ['sidepart', 'Side part'], ['buzz', 'Buzz'], ['curly', 'Curly'],
       ['quiff', 'Quiff'], ['mohawk', 'Mohawk'], ['manbun', 'Man bun'], ['afro', 'Afro'], ['pixie', 'Pixie'],
-      ['long', 'Long'], ['wavy', 'Wavy'], ['ponytail', 'Ponytail'], ['pigtails', 'Pigtails'], ['bob', 'Bob'], ['buns', 'Buns'], ['braids', 'Braids'], ['hijab', 'Hijab'], ['bald', 'None']],
+      ['long', 'Long'], ['wavy', 'Wavy'], ['ponytail', 'Ponytail'], ['pigtails', 'Pigtails'], ['bob', 'Bob'], ['buns', 'Buns'], ['braids', 'Braids'], ['bald', 'None']],
     hairColor: [['#2B1B14', 'Black'], ['#5A3825', 'Brown'], ['#A0642D', 'Chestnut'], ['#E3B55B', 'Blonde'], ['#C2452D', 'Red'], ['#B9A6E8', 'Lilac'], ['#F28DB2', 'Pink'], ['#9AA0A6', 'Grey']],
     eyes: [['round', 'Round'], ['happy', 'Happy'], ['wink', 'Wink'], ['sparkle', 'Sparkle'], ['sleepy', 'Sleepy'], ['hearts', 'Heart eyes']],
     mouth: [['smile', 'Smile'], ['grin', 'Grin'], ['laugh', 'Laugh'], ['small', 'Soft'], ['tongue', 'Cheeky'], ['o', 'Wow']],
@@ -66,7 +66,6 @@
       manbun: `<circle cx="100" cy="34" r="16" fill="${hc}"/><path d="M90 46 H110" stroke="${hcD}" stroke-width="4"/>`,
       wavy: `<path d="M50 92 Q40 38 100 38 Q160 38 150 92 Q166 120 152 140 Q166 162 150 182 Q100 192 50 182 Q34 162 48 140 Q34 120 50 92Z" fill="${hc}"/>`,
       pigtails: `<ellipse cx="40" cy="112" rx="14" ry="28" fill="${hc}" transform="rotate(-20 40 112)"/><ellipse cx="160" cy="112" rx="14" ry="28" fill="${hc}" transform="rotate(20 160 112)"/><circle cx="50" cy="88" r="5" fill="#F2A93B"/><circle cx="150" cy="88" r="5" fill="#F2A93B"/>`,
-      hijab: `<path d="M100 30 Q158 30 156 96 Q158 140 152 162 L48 162 Q42 140 44 96 Q42 30 100 30Z" fill="${hc}"/>`,
     };
     if (backHair[a.hair]) p.push(backHair[a.hair]);
 
@@ -169,7 +168,6 @@
       pixie: `<path d="M52 96 Q46 44 100 40 Q156 44 148 92 Q150 70 140 62 Q120 80 90 70 Q72 66 60 82 Q56 88 52 96Z" fill="${hc}"/>`,
       wavy: `<path d="M52 96 Q48 44 100 42 Q152 44 148 96 Q140 64 116 60 Q84 72 60 74 Q54 84 52 96Z" fill="${hc}"/>`,
       pigtails: bangs,
-      hijab: `<path fill-rule="evenodd" d="M100 34 Q154 34 154 96 L154 134 L46 134 L46 96 Q46 34 100 34Z M100 54 C76 54 62 72 62 96 C62 122 80 138 100 138 C120 138 138 122 138 96 C138 72 124 54 100 54Z" fill="${hc}"/><path d="M62 96 C62 72 76 54 100 54 C124 54 138 72 138 96" stroke="${hcD}" stroke-width="2" fill="none"/>`,
       bald: '',
     };
     p.push(front[a.hair] || '');
