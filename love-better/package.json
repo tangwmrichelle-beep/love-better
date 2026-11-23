@@ -1,0 +1,21 @@
+{
+  "name": "love-better",
+  "version": "1.0.0",
+  "description": "Love Better (AW2): a Telegram bot and mini app to encourage loving others",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "DEV_MODE=1 node src/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^13.2.0",
+    "express": "^5.3.0",
+    "grammy": "^1.48.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "private": true
+}

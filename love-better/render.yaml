@@ -1,0 +1,19 @@
+# One-click setup on Render (free plan). Render asks you for the three secret values below.
+services:
+  - type: web
+    name: love-better
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: NODE_VERSION
+        value: "22"
