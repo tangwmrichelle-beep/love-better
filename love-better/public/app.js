@@ -165,20 +165,15 @@
         <div class="progress"><div style="width:${pct}%"></div></div>
         <p class="muted small">${g.totalActs} acts of love so far · ${g.todayActs} today · ${g.weekActs} this week</p>
       </div>
-      <div class="section-title"><h3>Top lovers this week</h3><button class="link" id="seeBoard">See all</button></div>
-      <div class="card" id="top3"><div class="muted small">Loading…</div></div>
       <div class="section-title"><h3>Latest from the group</h3><button class="link" id="seeFeed">See all</button></div>
       <div id="latest"></div>`;
     $('#editAv').onclick = () => openAvatarEditor();
     $('#quickLog').onclick = () => openLog();
-    $('#seeBoard').onclick = () => { state.groupSeg = 'board'; state.boardPeriod = 'week'; go('group'); };
     $('#seeFeed').onclick = () => { state.groupSeg = 'feed'; go('group'); };
     state.countdownTimer = setInterval(() => { const el = $('#cd'); if (el) el.innerHTML = countdownHTML(); }, 1000);
 
-    const [board, feed] = await Promise.all([api('/leaderboard?period=week'), api('/feed')]);
+    const feed = await api('/feed');
     if (state.tab !== 'home') return;
-    const top = board.filter(r => r.stars > 0).slice(0, 3);
-    $('#top3').innerHTML = top.length ? top.map((r, i) => boardRow(r, i)).join('') : `<p class="muted small">No stars yet this week. You could be first! ✨</p>`;
     $('#latest').innerHTML = feed.length ? feed.slice(0, 3).map(postHTML).join('') : emptyFeed();
     bindPosts($('#latest'));
   }
@@ -198,7 +193,7 @@
       <div class="top"><div class="mini-av">${face(p.user.avatar)}</div>
         <div class="grow"><b>${esc(p.user.name)}</b>${handleTag(p.user)}<div class="muted small">loved ${w.e} ${w.short} · ${ago(p.createdAt)}</div></div>
         <span class="pill">+${p.stars}⭐</span></div>
-      ${desc}
+      ${desc}${photosHTML(p.photos || [])}
       <div class="meta">${link}</div>
       <div class="actions"><button class="cheer ${p.cheered ? 'on' : ''}" data-cheer>${p.cheered ? '💛' : '🤍'} ${p.cheers || ''} <span class="small">${p.cheered ? 'Cheered' : 'Cheer'}</span></button>
         ${p.mine || state.me.isAdmin ? `<button class="del" data-del>Delete</button>` : ''}</div>
@@ -206,6 +201,7 @@
   }
   const emptyFeed = () => `<div class="card empty"><div>🌱</div>Nothing yet. Log the first act of love!</div>`;
   function bindPosts(root) {
+    bindViewer(root);
     root.querySelectorAll('[data-cheer]').forEach(b => b.onclick = async () => {
       const card = b.closest('.post'); haptic();
       const r = await api(`/acts/${card.dataset.id}/cheer`, { method: 'POST' });
@@ -279,14 +275,17 @@
     openSheet(`
       <div class="sheet-head"><h2>Log an act of love 💛</h2><button class="x" data-close>✕</button></div>
       ${linked ? `<div class="linked" style="margin-top:10px"><span>${esc(linked)}</span></div>` : ''}
-      <label class="lbl" for="desc">What did you do?</label>
-      <textarea id="desc" maxlength="500" placeholder="e.g. Bought kopi for the cleaner auntie and thanked her">${link.task ? esc(link.task.title) : link.mission ? esc(link.mission.title) : ''}</textarea>
+      <label class="lbl" for="desc">What did you do? <span class="muted small" style="font-weight:700">Tell us more 💬</span></label>
+      <textarea id="desc" maxlength="1000" placeholder="Who was it, what did you do, and how did they respond?"></textarea>
+      <label class="lbl">Add photos <span class="muted small" style="font-weight:700">(optional, up to 4)</span></label>
+      <div id="logPhotos"></div>
       <label class="lbl">Who did you love?</label>
       <div class="who">${Object.entries(WHO).map(([k, w]) => `<button data-who="${k}"><span class="e">${w.e}</span><span><b>${w.label}</b></span><span class="s">+${state.me.stars[k]}⭐</span></button>`).join('')}</div>
       ${!link.mission && !link.task && openTasks.length ? `<label class="lbl" for="taskSel">Is this one of your goals? (optional)</label>
         <select id="taskSel" style="width:100%;padding:12px;border-radius:14px;border:2px solid var(--line);background:var(--card)"><option value="">No</option>${openTasks.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('')}</select>` : ''}
       <label class="check"><input type="checkbox" id="pub" checked> Share the details with the group</label>
       <button class="btn block" id="save" disabled>Choose who you loved</button>`);
+    const photos = mountPhotoPicker($('#logPhotos'));
     const save = $('#save');
     $('#sheet').querySelectorAll('[data-who]').forEach(b => b.onclick = () => {
       who = b.dataset.who; haptic();
@@ -294,18 +293,50 @@
       save.disabled = false; save.textContent = `Log it (+${state.me.stars[who]}⭐)`;
     });
     save.onclick = async () => {
-      const description = $('#desc').value.trim();
-      if (!description) { toast('Write a few words about what you did'); $('#desc').focus(); return; }
-      save.disabled = true;
+      // If they picked a mission/goal and wrote nothing, use its title.
+      const description = $('#desc').value.trim() || (link.mission ? link.mission.title : link.task ? link.task.title : '');
+      if (!description) { toast('Tell us a little about what you did'); $('#desc').focus(); return; }
+      save.disabled = true; save.textContent = photos.length ? 'Uploading…' : 'Saving…';
       try {
         const sel = $('#taskSel');
-        const r = await api('/acts', { method: 'POST', body: { description, recipient: who, isPublic: $('#pub').checked, missionId: link.mission?.id, taskId: link.task?.id || (sel && sel.value ? Number(sel.value) : null) } });
+        const r = await api('/acts', { method: 'POST', body: { description, photos, recipient: who, isPublic: $('#pub').checked, missionId: link.mission?.id, taskId: link.task?.id || (sel && sel.value ? Number(sel.value) : null) } });
         closeSheet(); hearts();
         try { tg.HapticFeedback.notificationOccurred('success'); } catch (e) { }
         toast(`+${r.act.stars}⭐ Beautiful! You have ${r.stats.totalStars}⭐ now`, 3000);
         await refreshMe(); go(state.tab);
-      } catch (e) { toast(e.message); save.disabled = false; }
+      } catch (e) { toast(e.message); save.disabled = false; save.textContent = `Log it (+${state.me.stars[who]}⭐)`; }
     };
+  }
+
+  // Reusable photo picker: returns the live array of shrunk photos (data URLs).
+  function mountPhotoPicker(root, max = 4) {
+    const photos = [];
+    root.innerHTML = `<div class="photo-pick"></div><input type="file" accept="image/*" multiple hidden>`;
+    const grid = root.querySelector('.photo-pick'), input = root.querySelector('input');
+    const draw = () => {
+      grid.innerHTML = photos.map((p, i) => `<div class="pick"><img src="${p}" alt=""><button data-rm="${i}" aria-label="Remove photo">✕</button></div>`).join('') +
+        (photos.length < max ? `<button type="button" class="pick add">＋<span>Add photo</span></button>` : '');
+      grid.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { photos.splice(Number(b.dataset.rm), 1); draw(); });
+      const add = grid.querySelector('.add'); if (add) add.onclick = () => input.click();
+    };
+    input.onchange = async e => {
+      for (const f of [...e.target.files].slice(0, max - photos.length)) {
+        try { photos.push(await shrinkPhoto(f)); } catch (err) { toast(err.message); }
+      }
+      e.target.value = ''; draw();
+    };
+    draw();
+    return photos;
+  }
+  function photosHTML(list) {
+    const n = list.length;
+    return n ? `<div class="photos p${Math.min(n, 4)}">${list.map(u => `<img src="${esc(u)}" alt="" loading="lazy" data-full="${esc(u)}">`).join('')}</div>` : '';
+  }
+  function bindViewer(root) {
+    root.querySelectorAll('[data-full]').forEach(img => img.onclick = () => {
+      const v = document.createElement('div'); v.className = 'viewer'; v.innerHTML = `<img src="${img.dataset.full}" alt="">`;
+      v.onclick = () => v.remove(); document.body.appendChild(v);
+    });
   }
 
   function openSheet(html) {
@@ -354,8 +385,7 @@
   }
   // ---------------- stories ----------------
   function storyHTML(st) {
-    const n = st.photos.length;
-    const pics = n ? `<div class="photos p${Math.min(n, 4)}">${st.photos.map(u => `<img src="${esc(u)}" alt="" loading="lazy" data-full="${esc(u)}">`).join('')}</div>` : '';
+    const pics = photosHTML(st.photos);
     return `<div class="card post story" data-id="${st.id}">
       <div class="top"><div class="mini-av">${face(st.user.avatar)}</div>
         <div class="grow"><b>${esc(st.user.name)}</b>${handleTag(st.user)}<div class="muted small">shared a story · ${ago(st.createdAt)}</div></div></div>
@@ -373,10 +403,7 @@
     root.querySelectorAll('[data-delstory]').forEach(b => b.onclick = () => confirmThen('Delete this story and its photos?', async () => {
       const card = b.closest('.story'); await api('/stories/' + card.dataset.id, { method: 'DELETE' }); card.remove(); toast('Deleted');
     }));
-    root.querySelectorAll('[data-full]').forEach(img => img.onclick = () => {
-      const v = document.createElement('div'); v.className = 'viewer'; v.innerHTML = `<img src="${img.dataset.full}" alt="">`;
-      v.onclick = () => v.remove(); document.body.appendChild(v);
-    });
+    bindViewer(root);
   }
   // Shrinks photos on the phone before upload (max 1280px, JPEG) so they load fast and stay small.
   function shrinkPhoto(file) {
@@ -393,30 +420,16 @@
     });
   }
   function openStoryComposer() {
-    const photos = [];
     openSheet(`
       <div class="sheet-head"><h2>Share a story 📖</h2><button class="x" data-close>✕</button></div>
       <p class="muted small" style="margin-top:4px">How did loving someone (or being loved) inspire you? Everyone in the group will see this.</p>
       <label class="lbl" for="stText">Your story</label>
       <textarea id="stText" maxlength="2000" style="min-height:130px" placeholder="e.g. I bought lunch for the uncle who sweeps our block. He told me no one had ever asked his name before…"></textarea>
       <label class="lbl">Photos (up to 4, optional)</label>
-      <div class="photo-pick" id="picks"></div>
-      <input type="file" id="file" accept="image/*" multiple hidden>
+      <div id="storyPhotos"></div>
       <p class="muted small" style="margin-top:8px">Please ask before posting photos of other people 🙏</p>
       <button class="btn block" id="postStory" style="margin-top:14px">Share with the group</button>`);
-    const drawPicks = () => {
-      $('#picks').innerHTML = photos.map((p, i) => `<div class="pick"><img src="${p}" alt=""><button data-rm="${i}" aria-label="Remove">✕</button></div>`).join('') +
-        (photos.length < 4 ? `<button class="pick add" id="addPic">＋<span>Add photo</span></button>` : '');
-      $('#picks').querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { photos.splice(Number(b.dataset.rm), 1); drawPicks(); });
-      const add = $('#addPic'); if (add) add.onclick = () => $('#file').click();
-    };
-    $('#file').onchange = async e => {
-      for (const f of [...e.target.files].slice(0, 4 - photos.length)) {
-        try { photos.push(await shrinkPhoto(f)); } catch (err) { toast(err.message); }
-      }
-      e.target.value = ''; drawPicks();
-    };
-    drawPicks();
+    const photos = mountPhotoPicker($('#storyPhotos'));
     $('#postStory').onclick = async () => {
       const text = $('#stText').value.trim();
       if (!text) { toast('Write a few words about your story'); return; }
@@ -546,7 +559,7 @@
   // ---------------- guided tour (first time) + help ----------------
   const TOUR = [
     { tab: null, icon: '💛', title: 'Welcome to Love Better!', text: 'We love because He first loved us. This app helps our CG notice the small ways we can love people every day, and cheer each other on while we do it.', when: 'Here’s a quick tour. It takes about a minute.' },
-    { tab: 'log', icon: '＋', title: 'Log an act of love', text: 'Tap the big ＋ button whenever you do something kind. Write what you did and choose who you loved:<br>🌍 Someone you don’t know: <b>+3⭐</b><br>🤗 A friend: <b>+2⭐</b><br>⛪ Someone in CG: <b>+1⭐</b>', when: '<b>When:</b> right after you’ve loved someone, so you don’t forget!' },
+    { tab: 'log', icon: '＋', title: 'Log an act of love', text: 'Tap the big ＋ button whenever you do something kind. Tell us what you did, add a photo if you like, and choose who you loved:<br>🌍 Someone you don’t know: <b>+3⭐</b><br>🤗 A friend: <b>+2⭐</b><br>⛪ Someone in CG: <b>+1⭐</b>', when: '<b>When:</b> right after you’ve loved someone, so you don’t forget!' },
     { tab: 'home', icon: '🏠', title: 'Home', text: 'See your stars, your day streak 🔥, the verse of the day, the countdowns to XMAS service and New Year, and how close our group is to our star goal.', when: '<b>When:</b> every day, for a quick check-in and some encouragement.' },
     { tab: 'missions', icon: '🎯', title: 'Missions & my goals', text: 'Need ideas? Pick a mission, go do it, then tap <b>“I did it!”</b>. You can also set your own love goals (like “cook dinner for mum”). Everyone can see them and cheer you on.', when: '<b>When:</b> at the start of your week, to plan who you’ll love.' },
     { tab: 'group', icon: '⭐', title: 'Be Inspired', text: '<b>Feed:</b> see what everyone did and tap Cheer.<br><b>Stories:</b> share a longer story with photos.<br><b>Goals:</b> see what others are working on.<br><b>Ranks:</b> the weekly and all-time leaderboard.', when: '<b>When:</b> whenever you need inspiration, or want to encourage someone.' },
@@ -583,14 +596,14 @@
     openSheet(`
       <div class="sheet-head"><h2>How to use Love Better</h2><button class="x" data-close>✕</button></div>
       <button class="btn block" id="replay" style="margin:10px 0 14px">▶️ Show me the tour again</button>
-      ${sec('＋', 'Log an act of love', `Tap the big <b>＋</b> at the bottom. Write what you did, choose who you loved, and tap <b>Log it</b>.<br><br>🌍 Someone you don’t know: <b>+3⭐</b><br>🤗 A friend: <b>+2⭐</b><br>⛪ Someone in CG: <b>+1⭐</b><br><br>Want to keep the details private? Untick <b>“Share the details with the group”</b>. You still get the stars, and others just see that you loved someone.`)}
+      ${sec('＋', 'Log an act of love', `Tap the big <b>＋</b> at the bottom. Tell us what you did, add photos if you like (optional, up to 4), choose who you loved, and tap <b>Log it</b>.<br><br>🌍 Someone you don’t know: <b>+3⭐</b><br>🤗 A friend: <b>+2⭐</b><br>⛪ Someone in CG: <b>+1⭐</b><br><br>Want to keep the details private? Untick <b>“Share the details with the group”</b>. You still get the stars, and others just see that you loved someone.`)}
       ${sec('🎯', 'Missions and my own goals', `Go to <b>Missions</b>. Pick a mission, do it, then tap <b>I did it!</b> to log it.<br><br>To set your own goal, type it under <b>My own love goals</b> and tap <b>Add</b>. When you’ve done it, tap <b>Done!</b> to log it and earn your stars.`)}
       ${sec('📖', 'Share a story with photos', `Go to <b>Be Inspired → Stories</b> and tap <b>Share a story</b>. Write what happened and add up to 4 photos. Please ask before posting photos of other people 🙏`)}
       ${sec('⭐', 'Cheer others on', `In <b>Be Inspired</b>, tap <b>Cheer</b> on an act of love or <b>Inspired</b> on a story to encourage the person.`)}
       ${sec('🏆', 'Leaderboard and stats', `<b>Be Inspired → Ranks</b> shows this week and all-time stars. <b>Me</b> shows your own stats, your streak 🔥 and the group’s progress.`)}
       ${sec('😊', 'Change my character or username', `Go to <b>Me</b> and tap <b>Edit character & username</b>. <b>🎲 Surprise me</b> mixes up your clothes, accessories, pose and expression.`)}
       ${sec('🔥', 'What is a streak?', `The number of days in a row you’ve logged at least one act of love. Log something every day to keep it going!`)}
-      ${sec('🤖', 'Using the bot in the chat', `You can log without opening the app. Just type what you did to the bot, then choose who you loved.<br><br><b>/stars</b>: my stars<br><b>/leaderboard</b>: top 10<br><b>/countdown</b>: days to XMAS service and New Year<br><b>/verse</b>: verse of the day<br><b>/mute</b> or <b>/unmute</b>: turn announcements off or on`)}
+      ${sec('🤖', 'Using the bot in the chat', `You can log without opening the app. Just type what you did to the bot, then choose who you loved. To add a photo, send the photo with a caption saying what you did.<br><br><b>/stars</b>: my stars<br><b>/leaderboard</b>: top 10<br><b>/countdown</b>: days to XMAS service and New Year<br><b>/verse</b>: verse of the day<br><b>/mute</b> or <b>/unmute</b>: turn announcements off or on`)}
       ${sec('🗑️', 'I made a mistake', `You can delete your own acts of love, stories and goals with the <b>Delete</b> button on them. The stars are removed too.`)}
       <p class="muted small" style="text-align:center;margin-top:16px">Still stuck? Message Richelle 💛</p>`);
     $('#replay').onclick = () => { closeSheet(); go('home'); startTour(); };

@@ -6,17 +6,17 @@ const { verifyInitData } = require('./auth');
 
 function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
   const app = express();
-  app.use('/api/stories', express.json({ limit: '8mb' })); // stories can carry up to 4 photos
+  app.use(['/api/stories', '/api/acts'], express.json({ limit: '8mb' })); // stories and acts can carry up to 4 photos
   app.use(express.json({ limit: '100kb' }));
   if (webhookHandler) app.post(webhookPath, webhookHandler());
   app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
   app.get('/health', (req, res) => res.json({ ok: true }));
   // Story photos. The random token in the address keeps them private to people who can see the story.
   app.get('/photos/:key', async (req, res) => {
-    const m = /^(\d+)-([a-f0-9]{24})$/.exec(req.params.key);
+    const m = /^(a?)(\d+)-([a-f0-9]{24})$/.exec(req.params.key);
     if (!m) return res.status(404).end();
     try {
-      const p = await svc.getPhoto(Number(m[1]), m[2]);
+      const p = await svc.getPhoto(Number(m[2]), m[3], m[1] ? 'act' : 'story');
       if (!p) return res.status(404).end();
       res.set('Content-Type', p.mime).set('Cache-Control', 'private, max-age=31536000, immutable').send(p.data);
     } catch (e) { res.status(500).end(); }
@@ -61,7 +61,7 @@ function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
   api.post('/acts', wrap(async req => {
     const act = await svc.logAct(req.user.id, {
       description: req.body.description, recipient: req.body.recipient, isPublic: req.body.isPublic !== false,
-      missionId: req.body.missionId || null, taskId: req.body.taskId || null,
+      missionId: req.body.missionId || null, taskId: req.body.taskId || null, photos: req.body.photos,
     });
     announceAct(req.user.id, act).catch(() => {});
     return { act, stats: await svc.userStats(req.user.id) };

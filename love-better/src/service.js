@@ -8,6 +8,24 @@ const DAY = 24 * 3600 * 1000;
 const OFFSET = config.tzOffsetMinutes * 60 * 1000;
 const RECIPIENT_LABEL = { stranger: 'someone they don’t know', friend: 'a friend', cg: 'someone in CG' };
 
+// ---------- Photos (stored in the database, so nothing is lost when the free server restarts) ----------
+const MAX_PHOTOS = 4, MAX_PHOTO_BYTES = 1.5 * 1024 * 1024;
+function decodePhotos(photos) {
+  photos = Array.isArray(photos) ? photos.slice(0, MAX_PHOTOS) : [];
+  return photos.map(p => {
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(p));
+    if (!m) throw new Error('Photos must be JPG, PNG or WebP.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > MAX_PHOTO_BYTES) throw new Error('One of the photos is too big.');
+    return { mime: m[1], buf };
+  });
+}
+async function savePhotos(table, col, id, decoded) {
+  for (const [i, ph] of decoded.entries())
+    await db.run(`INSERT INTO ${table} (${col}, token, mime, data, position) VALUES (?,?,?,?,?)`,
+      [id, require('crypto').randomBytes(12).toString('hex'), ph.mime, ph.buf, i]);
+}
+
 // Day number in Singapore time (used for streaks / weeks)
 const localDay = (ts) => Math.floor((ts + OFFSET) / DAY);
 function startOfWeek(ts = Date.now()) {
@@ -42,8 +60,8 @@ function publicUser(u) {
   return { id: u.id, name: nameOf(u), handle: u.handle || null, avatar };
 }
 
-async function logAct(userId, { description, recipient, isPublic = true, missionId = null, taskId = null }) {
-  description = String(description || '').trim().slice(0, 500);
+async function logAct(userId, { description, recipient, isPublic = true, missionId = null, taskId = null, photos = [], photoBuffers = [] }) {
+  description = String(description || '').trim().slice(0, 1000);
   if (!description) throw new Error('Please describe what you did.');
   if (!config.stars[recipient]) throw new Error('Please choose who you loved.');
   missionId = Number(missionId) || null; taskId = Number(taskId) || null;
@@ -52,9 +70,12 @@ async function logAct(userId, { description, recipient, isPublic = true, mission
     const t = await db.get('SELECT * FROM tasks WHERE id = ? AND user_id = ?', [taskId, userId]);
     if (!t) taskId = null; else if (!t.done_at) await db.run('UPDATE tasks SET done_at = ? WHERE id = ?', [Date.now(), taskId]);
   }
+  const decoded = [...decodePhotos(photos), ...photoBuffers].slice(0, MAX_PHOTOS);
   const stars = config.stars[recipient];
-  return db.get(`INSERT INTO acts (user_id, description, recipient, stars, is_public, mission_id, task_id, created_at)
+  const act = await db.get(`INSERT INTO acts (user_id, description, recipient, stars, is_public, mission_id, task_id, created_at)
     VALUES (?,?,?,?,?,?,?,?) RETURNING *`, [userId, description, recipient, stars, isPublic ? 1 : 0, missionId, taskId, Date.now()]);
+  await savePhotos('act_photos', 'act_id', act.id, decoded);
+  return act;
 }
 
 async function deleteAct(userId, actId) {
@@ -129,7 +150,9 @@ async function feed(viewerId, limit = 50, before = null) {
     LEFT JOIN tasks t ON t.id = a.task_id
     WHERE (?::int IS NULL OR a.id < ?::int)
     ORDER BY a.id DESC LIMIT ?`, [viewerId, before, before, limit]);
+  const photos = rows.length ? await db.all('SELECT id, act_id, token FROM act_photos WHERE act_id = ANY(?::int[]) ORDER BY position', [rows.map(r => r.id)]) : [];
   return rows.map(r => ({
+    photos: r.is_public || r.user_id === viewerId ? photos.filter(p => p.act_id === r.id).map(p => `/photos/a${p.id}-${p.token}`) : [],
     id: r.id,
     user: publicUser({ id: r.user_id, display_name: r.display_name, first_name: r.first_name, username: r.username, avatar: r.avatar, real_name: r.real_name, handle: r.handle, gender: r.gender }),
     description: r.is_public || r.user_id === viewerId ? r.description : null,
@@ -223,22 +246,12 @@ function countdown() {
 }
 
 // ---------- Stories (photos are stored in the database, so nothing is lost when the free server restarts) ----------
-const MAX_PHOTOS = 4, MAX_PHOTO_BYTES = 1.5 * 1024 * 1024;
 async function addStory(userId, { text, photos }) {
   const body = String(text || '').trim().slice(0, 2000);
   if (!body) throw new Error('Write a few words about your story.');
-  photos = Array.isArray(photos) ? photos.slice(0, MAX_PHOTOS) : [];
-  const decoded = photos.map(p => {
-    const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(p));
-    if (!m) throw new Error('Photos must be JPG, PNG or WebP.');
-    const buf = Buffer.from(m[2], 'base64');
-    if (buf.length > MAX_PHOTO_BYTES) throw new Error('One of the photos is too big.');
-    return { mime: m[1], buf };
-  });
+  const decoded = decodePhotos(photos);
   const story = await db.get('INSERT INTO stories (user_id, body, created_at) VALUES (?,?,?) RETURNING *', [userId, body, Date.now()]);
-  for (const [i, ph] of decoded.entries())
-    await db.run('INSERT INTO story_photos (story_id, token, mime, data, position) VALUES (?,?,?,?,?)',
-      [story.id, require('crypto').randomBytes(12).toString('hex'), ph.mime, ph.buf, i]);
+  await savePhotos('story_photos', 'story_id', story.id, decoded);
   return story;
 }
 
@@ -270,7 +283,8 @@ async function toggleStoryLike(userId, storyId) {
   return { liked: !removed, likes: (await db.get('SELECT COUNT(*) n FROM story_likes WHERE story_id = ?', [storyId])).n };
 }
 
-const getPhoto = (id, token) => db.get('SELECT mime, data FROM story_photos WHERE id = ? AND token = ?', [id, token]);
+const getPhoto = (id, token, kind = 'story') =>
+  db.get(`SELECT mime, data FROM ${kind === 'act' ? 'act_photos' : 'story_photos'} WHERE id = ? AND token = ?`, [id, token]);
 
 const recipients = () => db.all('SELECT * FROM users WHERE approved = 1 AND notify = 1');
 

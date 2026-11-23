@@ -55,6 +55,10 @@ async function init() {
       id SERIAL PRIMARY KEY, story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
       token TEXT NOT NULL, mime TEXT NOT NULL, data BYTEA NOT NULL, position INTEGER NOT NULL DEFAULT 0);
     CREATE INDEX IF NOT EXISTS story_photos_story ON story_photos(story_id);
+    CREATE TABLE IF NOT EXISTS act_photos (
+      id SERIAL PRIMARY KEY, act_id INTEGER NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
+      token TEXT NOT NULL, mime TEXT NOT NULL, data BYTEA NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS act_photos_act ON act_photos(act_id);
     CREATE TABLE IF NOT EXISTS story_likes (
       story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (story_id, user_id));

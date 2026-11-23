@@ -4,7 +4,7 @@ const config = require('./config');
 const svc = require('./service');
 
 const bot = new Bot(config.botToken || 'missing-token');
-const pendingLogs = new Map(); // userId -> text waiting for a "who did you love?" answer
+const pendingLogs = new Map(); // userId -> { text, photoId } waiting for a "who did you love?" answer
 
 const esc = (s) => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const openAppKeyboard = (label = '💖 Open Love Better') =>
@@ -51,7 +51,7 @@ async function sendWelcome(ctx) {
     `<i>“${esc(v.text)}”</i> — ${esc(v.ref)}\n\n` +
     `<b>Stars for every act of love</b>\n🌍 Someone you don’t know: +3⭐\n🤗 A friend: +2⭐\n⛪ Someone in CG: +1⭐\n\n` +
     `Tap the button below to open the app, or use:\n` +
-    `/log <i>what you did</i> to log quickly\n/stars to see your stars\n/leaderboard to see the top lovers\n/countdown for the XMAS service countdown`,
+    `/log <i>what you did</i> to log quickly (or send a photo with a caption)\n/stars to see your stars\n/leaderboard to see the top lovers\n/countdown for the XMAS service countdown`,
     { parse_mode: 'HTML', reply_markup: openAppKeyboard() });
 }
 
@@ -62,22 +62,25 @@ bot.command('app', ctx => ctx.reply('Tap to open:', { reply_markup: openAppKeybo
 bot.command('log', async ctx => {
   const text = (ctx.match || '').trim();
   if (!text) return ctx.reply('Tell me what you did after /log, for example:\n/log Bought kopi for the cleaner auntie ☕', { reply_markup: openAppKeyboard('Or log in the app') });
-  pendingLogs.set(ctx.from.id, text);
+  pendingLogs.set(ctx.from.id, { text });
   await ctx.reply(`💖 “${esc(text)}”\n\nWho did you love?`, { parse_mode: 'HTML', reply_markup: whoKeyboard() });
 });
 
 bot.callbackQuery(/^who:(\w+)$/, async ctx => {
   const who = ctx.match[1];
-  const text = pendingLogs.get(ctx.from.id);
+  const pending = pendingLogs.get(ctx.from.id);
+  const text = pending && pending.text;
   pendingLogs.delete(ctx.from.id);
   if (who === 'cancel' || !text) {
     await ctx.answerCallbackQuery();
     return ctx.editMessageText(text ? 'Cancelled.' : 'That one expired, please /log it again.');
   }
-  const act = await svc.logAct(ctx.from.id, { description: text, recipient: who });
+  await ctx.answerCallbackQuery({ text: 'Saving…' }).catch(() => {});
+  let photoBuffers = [];
+  if (pending.photoId) { try { photoBuffers = [await downloadPhoto(pending.photoId)]; } catch (e) { console.error('Photo download failed:', e.message); } }
+  const act = await svc.logAct(ctx.from.id, { description: text, recipient: who, photoBuffers });
   const stats = await svc.userStats(ctx.from.id);
-  await ctx.answerCallbackQuery({ text: `+${act.stars}⭐` });
-  await ctx.editMessageText(`✅ Logged! <b>+${act.stars}⭐</b>\n“${esc(text)}”\n\nYou now have <b>${stats.totalStars}⭐</b>${stats.streak > 1 ? ` and a ${stats.streak}-day streak 🔥` : ''}. Keep loving!`, { parse_mode: 'HTML' });
+  await ctx.editMessageText(`✅ Logged! <b>+${act.stars}⭐</b>${photoBuffers.length ? ' 📸' : ''}\n“${esc(text)}”\n\nYou now have <b>${stats.totalStars}⭐</b>${stats.streak > 1 ? ` and a ${stats.streak}-day streak 🔥` : ''}. Keep loving!`, { parse_mode: 'HTML' });
   announceAct(ctx.from.id, act).catch(() => {});
 });
 
@@ -124,9 +127,27 @@ bot.command('members', async ctx => {
 // Plain text in private chat: offer to log it.
 bot.on('message:text', async ctx => {
   if (ctx.chat.type !== 'private' || ctx.message.text.startsWith('/')) return;
-  pendingLogs.set(ctx.from.id, ctx.message.text.trim());
+  pendingLogs.set(ctx.from.id, { text: ctx.message.text.trim() });
   await ctx.reply(`Want to log this as an act of love? 💖\n“${esc(ctx.message.text.trim())}”\n\nWho did you love?`, { parse_mode: 'HTML', reply_markup: whoKeyboard() });
 });
+
+// A photo sent to the bot (with a caption saying what they did) is logged with the photo.
+bot.on('message:photo', async ctx => {
+  if (ctx.chat.type !== 'private') return;
+  const caption = (ctx.message.caption || '').trim();
+  if (!caption) return ctx.reply('📸 Lovely photo! Please send it again with a caption telling us what you did, e.g. “Cooked dinner for my grandma”.');
+  const sizes = ctx.message.photo; // smallest to largest; pick the biggest one under ~1.2MB
+  const best = [...sizes].reverse().find(s => !s.file_size || s.file_size < 1.2e6) || sizes[0];
+  pendingLogs.set(ctx.from.id, { text: caption, photoId: best.file_id });
+  await ctx.reply(`📸 “${esc(caption)}”\n\nWho did you love?`, { parse_mode: 'HTML', reply_markup: whoKeyboard() });
+});
+
+async function downloadPhoto(fileId) {
+  const f = await bot.api.getFile(fileId);
+  const res = await fetch(`https://api.telegram.org/file/bot${config.botToken}/${f.file_path}`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return { mime: 'image/jpeg', buf: Buffer.from(await res.arrayBuffer()) };
+}
 
 bot.catch(err => console.error('Bot error:', err.error || err));
 

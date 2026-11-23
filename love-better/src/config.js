@@ -15,7 +15,7 @@ const config = {
   joinCode: (process.env.JOIN_CODE || '').trim(),
   // Optional: a Telegram group chat id where every logged act is also posted.
   groupChatId: process.env.GROUP_CHAT_ID ? Number(process.env.GROUP_CHAT_ID) : null,
-  groupGoal: Number(process.env.GROUP_GOAL || 500),
+  groupGoal: Number(process.env.GROUP_GOAL || 50),
   appName: process.env.APP_NAME || 'Love Better (AW2)',
   // Local testing only: lets the mini app run in a normal browser without Telegram.
   devMode: process.env.DEV_MODE === '1',
