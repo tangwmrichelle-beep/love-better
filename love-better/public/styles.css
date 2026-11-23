@@ -44,8 +44,7 @@ p { margin: 0; }
 
 .countdown { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .cd { background: #233158; color: #fff; border-radius: var(--radius); padding: 14px; position: relative; overflow: hidden; box-shadow: var(--shadow); }
-.cd.c1 { background: #2E5B4C; }
-.cd.c2 { background: #4A3F6B; grid-column: 1 / -1; }
+.cd.c1 { background: #4A3F6B; }
 .cd .t { padding-right: 26px; font-size: 13px; font-weight: 800; opacity: .9; }
 .cd .d { font-size: 36px; font-weight: 900; line-height: 1.1; margin-top: 4px; }
 .cd .d small { font-size: 14px; font-weight: 800; }
