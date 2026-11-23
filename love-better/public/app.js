@@ -364,7 +364,7 @@
     } else if (seg === 'stories') {
       const list = await api('/stories');
       body.innerHTML = `<button class="btn block" id="newStory" style="margin-bottom:14px">📸 Share a story</button>` +
-        (list.length ? list.map(storyHTML).join('') : `<div class="card empty"><div>📖</div>No stories yet. Share how God used a small act of love!</div>`);
+        (list.length ? list.map(storyHTML).join('') : `<div class="card empty"><div>📖</div>Share how you spread God’s love to the people around you!</div>`);
       $('#newStory').onclick = openStoryComposer;
       bindStories(body);
     } else if (seg === 'goals') {
