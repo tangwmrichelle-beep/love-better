@@ -64,7 +64,7 @@
     }
     if (!state.me.approved) return renderJoin();
     if (!state.me.onboarded) return renderOnboarding();
-    $('#tabs').hidden = false;
+    $('#tabs').hidden = false; $('#helpBtn').hidden = false;
     api('/tasks').then(t => state.tasks = t).catch(() => {});
     if (!state.me.user.avatar) { go('home'); openAvatarEditor(true); return; }
     go('home');
@@ -321,7 +321,7 @@
   // ---------------- together: feed / goals / leaderboard ----------------
   async function renderGroup() {
     const seg = state.groupSeg;
-    view.innerHTML = `<h2 style="margin:4px 4px 12px">Loving together</h2>
+    view.innerHTML = `<h2 style="margin:4px 4px 12px">Be Inspired ⭐</h2>
       <div class="seg">${[['feed', '💌 Feed'], ['stories', '📖 Stories'], ['goals', '🎯 Goals'], ['board', '🏆 Ranks']].map(([k, l]) => `<button data-seg="${k}" class="${seg === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="groupBody"><div class="muted small">Loading…</div></div>`;
     view.querySelectorAll('[data-seg]').forEach(b => b.onclick = () => { state.groupSeg = b.dataset.seg; haptic(); renderGroup(); });
@@ -536,11 +536,66 @@
     $('#saveAv').onclick = async () => {
       try {
         await api('/profile', { method: 'POST', body: { avatar: av, handle: $('#nm').value, gender: av.base } });
-        await refreshMe(); closeSheet(); hearts(8); toast('Looking good! 😍'); go(state.tab);
+        await refreshMe(); closeSheet(); hearts(8); toast('Looking good! 😍'); go('home');
+        if (first) setTimeout(startTour, 900); // brand new member: show them around
       } catch (e) { toast(e.message); }
     };
     draw();
   }
+
+  // ---------------- guided tour (first time) + help ----------------
+  const TOUR = [
+    { tab: null, icon: '💛', title: 'Welcome to Love Better!', text: 'We love because He first loved us. This app helps our CG notice the small ways we can love people every day, and cheer each other on while we do it.', when: 'Here’s a quick tour. It takes about a minute.' },
+    { tab: 'log', icon: '＋', title: 'Log an act of love', text: 'Tap the big ＋ button whenever you do something kind. Write what you did and choose who you loved:<br>🌍 Someone you don’t know: <b>+3⭐</b><br>🤗 A friend: <b>+2⭐</b><br>⛪ Someone in CG: <b>+1⭐</b>', when: '<b>When:</b> right after you’ve loved someone, so you don’t forget!' },
+    { tab: 'home', icon: '🏠', title: 'Home', text: 'See your stars, your day streak 🔥, the verse of the day, the countdowns to XMAS service and New Year, and how close our group is to our star goal.', when: '<b>When:</b> every day, for a quick check-in and some encouragement.' },
+    { tab: 'missions', icon: '🎯', title: 'Missions & my goals', text: 'Need ideas? Pick a mission, go do it, then tap <b>“I did it!”</b>. You can also set your own love goals (like “cook dinner for mum”). Everyone can see them and cheer you on.', when: '<b>When:</b> at the start of your week, to plan who you’ll love.' },
+    { tab: 'group', icon: '⭐', title: 'Be Inspired', text: '<b>Feed:</b> see what everyone did and tap Cheer.<br><b>Stories:</b> share a longer story with photos.<br><b>Goals:</b> see what others are working on.<br><b>Ranks:</b> the weekly and all-time leaderboard.', when: '<b>When:</b> whenever you need inspiration, or want to encourage someone.' },
+    { tab: 'me', icon: '😊', title: 'Me', text: 'Your stats and who you’ve loved, the group’s stats, and where you can change your character and username.', when: '<b>When:</b> to see how you’re growing, or to give your character a new look.' },
+    { tab: null, icon: '🤖', title: 'You can also just chat to the bot', text: 'In the Telegram chat, type what you did (for example “bought kopi for the cleaner auntie”) and the bot will log it for you. Try <b>/stars</b>, <b>/leaderboard</b> and <b>/countdown</b> too.', when: '<b>When:</b> when you’re on the go and want to log something quickly.' },
+    { tab: 'help', icon: '?', title: 'Need help?', text: 'Tap the <b>?</b> button at the top right anytime to see these instructions again.', when: 'Now go love someone better today! 💛' },
+  ];
+  function startTour(step = 0) {
+    endTour();
+    const t = TOUR[step];
+    document.body.classList.add('touring');
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('spot', b.dataset.tab === t.tab));
+    $('#helpBtn').classList.toggle('spot', t.tab === 'help');
+    const o = document.createElement('div'); o.className = 'tour'; o.id = 'tour';
+    o.innerHTML = `<div class="tour-card" role="dialog" aria-modal="true">
+      <div class="tour-icon">${t.icon}</div><h2>${t.title}</h2><p>${t.text}</p><p class="tour-when">${t.when}</p>
+      <div class="dots">${TOUR.map((_, i) => `<span class="${i === step ? 'on' : ''}"></span>`).join('')}</div>
+      <div class="tour-btns">${step ? '<button class="btn ghost" id="tBack">Back</button>' : '<button class="btn ghost" id="tSkip">Skip</button>'}
+        <button class="btn" id="tNext">${step === TOUR.length - 1 ? 'Let’s go! 💛' : 'Next'}</button></div></div>`;
+    document.body.appendChild(o);
+    haptic();
+    $('#tNext').onclick = () => step === TOUR.length - 1 ? endTour() : startTour(step + 1);
+    if ($('#tBack')) $('#tBack').onclick = () => startTour(step - 1);
+    if ($('#tSkip')) $('#tSkip').onclick = endTour;
+  }
+  function endTour() {
+    const o = $('#tour'); if (o) o.remove();
+    document.body.classList.remove('touring');
+    document.querySelectorAll('.spot').forEach(b => b.classList.remove('spot'));
+  }
+
+  function openHelp() {
+    const sec = (icon, title, body) => `<details class="help"><summary><span>${icon}</span>${title}</summary><div>${body}</div></details>`;
+    openSheet(`
+      <div class="sheet-head"><h2>How to use Love Better</h2><button class="x" data-close>✕</button></div>
+      <button class="btn block" id="replay" style="margin:10px 0 14px">▶️ Show me the tour again</button>
+      ${sec('＋', 'Log an act of love', `Tap the big <b>＋</b> at the bottom. Write what you did, choose who you loved, and tap <b>Log it</b>.<br><br>🌍 Someone you don’t know: <b>+3⭐</b><br>🤗 A friend: <b>+2⭐</b><br>⛪ Someone in CG: <b>+1⭐</b><br><br>Want to keep the details private? Untick <b>“Share the details with the group”</b>. You still get the stars, and others just see that you loved someone.`)}
+      ${sec('🎯', 'Missions and my own goals', `Go to <b>Missions</b>. Pick a mission, do it, then tap <b>I did it!</b> to log it.<br><br>To set your own goal, type it under <b>My own love goals</b> and tap <b>Add</b>. When you’ve done it, tap <b>Done!</b> to log it and earn your stars.`)}
+      ${sec('📖', 'Share a story with photos', `Go to <b>Be Inspired → Stories</b> and tap <b>Share a story</b>. Write what happened and add up to 4 photos. Please ask before posting photos of other people 🙏`)}
+      ${sec('⭐', 'Cheer others on', `In <b>Be Inspired</b>, tap <b>Cheer</b> on an act of love or <b>Inspired</b> on a story to encourage the person.`)}
+      ${sec('🏆', 'Leaderboard and stats', `<b>Be Inspired → Ranks</b> shows this week and all-time stars. <b>Me</b> shows your own stats, your streak 🔥 and the group’s progress.`)}
+      ${sec('😊', 'Change my character or username', `Go to <b>Me</b> and tap <b>Edit character & username</b>. <b>🎲 Surprise me</b> mixes up your clothes, accessories, pose and expression.`)}
+      ${sec('🔥', 'What is a streak?', `The number of days in a row you’ve logged at least one act of love. Log something every day to keep it going!`)}
+      ${sec('🤖', 'Using the bot in the chat', `You can log without opening the app. Just type what you did to the bot, then choose who you loved.<br><br><b>/stars</b>: my stars<br><b>/leaderboard</b>: top 10<br><b>/countdown</b>: days to XMAS service and New Year<br><b>/verse</b>: verse of the day<br><b>/mute</b> or <b>/unmute</b>: turn announcements off or on`)}
+      ${sec('🗑️', 'I made a mistake', `You can delete your own acts of love, stories and goals with the <b>Delete</b> button on them. The stars are removed too.`)}
+      <p class="muted small" style="text-align:center;margin-top:16px">Still stuck? Message Richelle 💛</p>`);
+    $('#replay').onclick = () => { closeSheet(); go('home'); startTour(); };
+  }
+  $('#helpBtn').onclick = () => { haptic(); openHelp(); };
 
   boot();
 })();
