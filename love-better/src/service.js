@@ -2,6 +2,7 @@
 const db = require('./db');
 const config = require('./config');
 const { VERSES } = require('./missions');
+const { genderForName, tidyName } = require('./members');
 
 const DAY = 24 * 3600 * 1000;
 const OFFSET = config.tzOffsetMinutes * 60 * 1000;
@@ -15,7 +16,7 @@ function startOfWeek(ts = Date.now()) {
   return (d - weekday) * DAY - OFFSET;
 }
 
-function nameOf(u) { return u.display_name || u.first_name || (u.username ? '@' + u.username : 'Friend'); }
+function nameOf(u) { return u.real_name || u.display_name || u.first_name || (u.username ? '@' + u.username : 'Friend'); }
 
 const getUser = (id) => db.get('SELECT * FROM users WHERE id = ?', [id]);
 
@@ -37,7 +38,8 @@ async function tryJoinCode(userId, code) {
 function publicUser(u) {
   let avatar = null;
   try { avatar = u.avatar ? JSON.parse(u.avatar) : null; } catch { }
-  return { id: u.id, name: nameOf(u), avatar };
+  if (avatar && u.gender) avatar.base = u.gender;
+  return { id: u.id, name: nameOf(u), handle: u.handle || null, avatar };
 }
 
 async function logAct(userId, { description, recipient, isPublic = true, missionId = null, taskId = null }) {
@@ -110,7 +112,7 @@ async function groupStats() {
 async function leaderboard(period = 'all') {
   const since = period === 'week' ? startOfWeek() : 0;
   const rows = await db.all(`
-    SELECT u.id, u.display_name, u.first_name, u.username, u.avatar, u.created_at, COALESCE(SUM(a.stars),0) stars, COUNT(a.id) acts
+    SELECT u.id, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender, u.created_at, COALESCE(SUM(a.stars),0) stars, COUNT(a.id) acts
     FROM users u LEFT JOIN acts a ON a.user_id = u.id AND a.created_at >= ?
     WHERE u.approved = 1
     GROUP BY u.id ORDER BY stars DESC, acts DESC, u.created_at ASC`, [since]);
@@ -119,7 +121,7 @@ async function leaderboard(period = 'all') {
 
 async function feed(viewerId, limit = 50, before = null) {
   const rows = await db.all(`
-    SELECT a.*, u.display_name, u.first_name, u.username, u.avatar, m.title mission_title, m.emoji mission_emoji, t.title task_title,
+    SELECT a.*, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender, m.title mission_title, m.emoji mission_emoji, t.title task_title,
       (SELECT COUNT(*) FROM cheers c WHERE c.act_id = a.id) cheers,
       (SELECT COUNT(*) FROM cheers c WHERE c.act_id = a.id AND c.user_id = ?) cheered
     FROM acts a JOIN users u ON u.id = a.user_id
@@ -129,7 +131,7 @@ async function feed(viewerId, limit = 50, before = null) {
     ORDER BY a.id DESC LIMIT ?`, [viewerId, before, before, limit]);
   return rows.map(r => ({
     id: r.id,
-    user: publicUser({ id: r.user_id, display_name: r.display_name, first_name: r.first_name, username: r.username, avatar: r.avatar }),
+    user: publicUser({ id: r.user_id, display_name: r.display_name, first_name: r.first_name, username: r.username, avatar: r.avatar, real_name: r.real_name, handle: r.handle, gender: r.gender }),
     description: r.is_public || r.user_id === viewerId ? r.description : null,
     isPublic: !!r.is_public, recipient: r.recipient, stars: r.stars,
     mission: r.mission_title ? { title: r.mission_title, emoji: r.mission_emoji } : null,
@@ -161,10 +163,10 @@ async function addMission(userId, { emoji, title, description }) {
 const archiveMission = (id) => db.run('UPDATE missions SET active = 0 WHERE id = ?', [id]);
 
 async function tasks() {
-  const rows = await db.all(`SELECT t.*, u.display_name, u.first_name, u.username, u.avatar FROM tasks t JOIN users u ON u.id = t.user_id
+  const rows = await db.all(`SELECT t.*, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender FROM tasks t JOIN users u ON u.id = t.user_id
     ORDER BY (t.done_at IS NOT NULL), t.created_at DESC LIMIT 200`);
   return rows.map(t => ({ id: t.id, title: t.title, createdAt: t.created_at, doneAt: t.done_at,
-    user: publicUser({ id: t.user_id, display_name: t.display_name, first_name: t.first_name, username: t.username, avatar: t.avatar }) }));
+    user: publicUser({ id: t.user_id, display_name: t.display_name, first_name: t.first_name, username: t.username, avatar: t.avatar, real_name: t.real_name, handle: t.handle, gender: t.gender }) }));
 }
 
 function addTask(userId, title) {
@@ -175,9 +177,36 @@ function addTask(userId, title) {
 
 async function deleteTask(userId, taskId) { return (await db.run('DELETE FROM tasks WHERE id = ? AND user_id = ?', [taskId, userId])) > 0; }
 
-async function updateProfile(userId, { name, avatar, notify }) {
-  await db.run('UPDATE users SET display_name = COALESCE(?, display_name), avatar = COALESCE(?, avatar), notify = COALESCE(?::int, notify) WHERE id = ?',
-    [name || null, avatar || null, typeof notify === 'boolean' ? (notify ? 1 : 0) : null, userId]);
+const HANDLE_RE = /^[A-Za-z0-9_.]{3,20}$/;
+async function checkHandle(userId, handle) {
+  handle = String(handle || '').trim().replace(/^@/, '');
+  if (!HANDLE_RE.test(handle)) throw new Error('Username must be 3 to 20 letters, numbers, _ or .');
+  const taken = await db.get('SELECT id FROM users WHERE LOWER(handle) = LOWER(?) AND id <> ?', [handle, userId]);
+  if (taken) throw new Error('That username is taken. Try another one.');
+  return handle;
+}
+
+// First-time sign up: first name + username. Gender comes from the CG list when the name is on it.
+async function onboard(userId, { firstName, username, gender }) {
+  firstName = String(firstName || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+  if (!firstName) throw new Error('Please enter your first name.');
+  firstName = tidyName(firstName);
+  const handle = await checkHandle(userId, username);
+  const listed = genderForName(firstName);
+  if (!listed && !['boy', 'girl'].includes(gender)) throw new Error('Please choose Male or Female.');
+  await db.run('UPDATE users SET real_name = ?, handle = ?, gender = ?, gender_locked = ?, onboarded = 1 WHERE id = ?',
+    [firstName, handle, listed || gender, listed ? 1 : 0, userId]);
+}
+
+async function updateProfile(userId, { handle, avatar, notify, gender }) {
+  const u = await getUser(userId);
+  if (handle !== undefined && handle !== null && handle !== '' && handle !== u.handle) handle = await checkHandle(userId, handle); else handle = null;
+  // People on the CG list keep their gender; others can switch.
+  if (!u.gender_locked && ['boy', 'girl'].includes(gender)) await db.run('UPDATE users SET gender = ? WHERE id = ?', [gender, userId]);
+  const finalGender = u.gender_locked ? u.gender : (['boy', 'girl'].includes(gender) ? gender : u.gender);
+  if (avatar && finalGender) { const a = JSON.parse(avatar); a.base = finalGender; avatar = JSON.stringify(a); }
+  await db.run('UPDATE users SET handle = COALESCE(?, handle), avatar = COALESCE(?, avatar), notify = COALESCE(?::int, notify) WHERE id = ?',
+    [handle, avatar || null, typeof notify === 'boolean' ? (notify ? 1 : 0) : null, userId]);
 }
 const setNotify = (userId, on) => db.run('UPDATE users SET notify = ? WHERE id = ?', [on ? 1 : 0, userId]);
 const logBroadcast = (senderId, message, sent, failed) =>
@@ -197,6 +226,6 @@ const recipients = () => db.all('SELECT * FROM users WHERE approved = 1 AND noti
 
 module.exports = {
   RECIPIENT_LABEL, nameOf, upsertUser, getUser, tryJoinCode, publicUser, logAct, deleteAct, userStats, groupStats,
-  leaderboard, feed, toggleCheer, missions, addMission, archiveMission, tasks, addTask, deleteTask, updateProfile,
+  leaderboard, feed, toggleCheer, missions, addMission, archiveMission, tasks, addTask, deleteTask, updateProfile, onboard, genderForName,
   setNotify, logBroadcast, verseOfTheDay, countdown, recipients,
 };

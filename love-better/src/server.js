@@ -29,8 +29,9 @@ function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
   const adminOnly = (req, res, next) => req.isAdmin ? next() : res.status(403).json({ error: 'Admins only' });
 
   api.get('/me', wrap(async req => ({
-    user: { ...svc.publicUser(req.user), notify: !!req.user.notify },
-    approved: !!req.user.approved, isAdmin: req.isAdmin,
+    user: { ...svc.publicUser(req.user), notify: !!req.user.notify, firstName: req.user.real_name || req.user.first_name || '',
+      gender: req.user.gender || null, genderLocked: !!req.user.gender_locked },
+    approved: !!req.user.approved, onboarded: !!req.user.onboarded, isAdmin: req.isAdmin,
     stats: req.user.approved ? await svc.userStats(req.user.id) : null,
     group: req.user.approved ? await svc.groupStats() : null,
     countdown: svc.countdown(), verse: svc.verseOfTheDay(), stars: config.stars, appName: config.appName,
@@ -38,11 +39,12 @@ function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
   api.post('/join', wrap(async req => {
     if (!(await svc.tryJoinCode(req.user.id, req.body.code))) throw new Error('That code is not right. Ask your CG leader.');
   }));
+  api.post('/onboard', wrap(async req => { await svc.onboard(req.user.id, req.body); }));
+  api.get('/name-check', wrap(req => ({ gender: svc.genderForName(req.query.name) })));
   api.post('/profile', wrap(async req => {
-    const name = String(req.body.name || '').trim().slice(0, 40);
     let avatar = req.body.avatar && typeof req.body.avatar === 'object' ? JSON.stringify(req.body.avatar) : null;
     if (avatar && avatar.length > 2000) throw new Error('Avatar data too large');
-    await svc.updateProfile(req.user.id, { name, avatar, notify: req.body.notify });
+    await svc.updateProfile(req.user.id, { handle: req.body.handle, avatar, notify: req.body.notify, gender: req.body.gender });
   }));
 
   api.post('/acts', wrap(async req => {

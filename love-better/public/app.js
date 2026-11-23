@@ -51,6 +51,7 @@
     if (s < 7 * 86400) return Math.floor(s / 86400) + 'd ago';
     return new Date(ts).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' });
   }
+  const handleTag = u => u.handle ? ` <span class="muted small">@${esc(u.handle)}</span>` : '';
   const face = (avatar, size) => Avatar.render(avatar || { base: 'boy', background: 'mint' }, { face: true, size });
 
   // ---------------- boot ----------------
@@ -62,10 +63,44 @@
       return;
     }
     if (!state.me.approved) return renderJoin();
+    if (!state.me.onboarded) return renderOnboarding();
     $('#tabs').hidden = false;
     api('/tasks').then(t => state.tasks = t).catch(() => {});
     if (!state.me.user.avatar) { go('home'); openAvatarEditor(true); return; }
     go('home');
+  }
+
+  // First-time sign up: first name + username (+ Male/Female if the name isn't on the CG list)
+  function renderOnboarding() {
+    let gender = null, listed = null, timer;
+    view.innerHTML = `<div style="padding-top:6vh">
+      <div style="font-size:52px;text-align:center">👋</div>
+      <h2 style="text-align:center">Welcome to Love Better!</h2>
+      <p class="muted" style="text-align:center;margin-top:6px">Let’s set up your profile.</p>
+      <label class="lbl" for="fn">Your first name</label>
+      <input type="text" id="fn" maxlength="40" autocomplete="given-name" placeholder="e.g. Jing Xun" value="${esc(state.me.user.firstName)}">
+      <div id="gWrap" style="margin-top:12px"></div>
+      <label class="lbl" for="un">Create a username</label>
+      <input type="text" id="un" maxlength="20" autocomplete="off" autocapitalize="none" placeholder="e.g. jingxun_loves">
+      <p class="muted small" style="margin-top:6px">3 to 20 letters, numbers, _ or . (everyone in the group sees this)</p>
+      <button class="btn block" id="go" style="margin-top:18px">Next: create my character ✨</button></div>`;
+    const drawGender = () => {
+      const w = $('#gWrap');
+      if (!$('#fn').value.trim()) { w.innerHTML = ''; return; }
+      if (listed) { w.innerHTML = `<p class="pill">✔ Found you on the CG list</p>`; return; }
+      w.innerHTML = `<label class="lbl" style="margin-top:0">I am</label><div class="seg" style="box-shadow:none;background:var(--accent-soft)">
+        ${[['boy', 'Male'], ['girl', 'Female']].map(([k, l]) => `<button data-g="${k}" class="${gender === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+      w.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { gender = b.dataset.g; drawGender(); });
+    };
+    const check = async () => { const n = $('#fn').value.trim(); listed = n ? (await api('/name-check?name=' + encodeURIComponent(n))).gender : null; drawGender(); };
+    $('#fn').oninput = () => { clearTimeout(timer); timer = setTimeout(check, 300); };
+    check();
+    $('#go').onclick = async () => {
+      try {
+        await api('/onboard', { method: 'POST', body: { firstName: $('#fn').value, username: $('#un').value, gender } });
+        await refreshMe(); boot();
+      } catch (e) { toast(e.message, 3000); }
+    };
   }
 
   function renderJoin() {
@@ -161,7 +196,7 @@
       : `<p class="desc muted">Loved ${w.short} quietly 🤫</p>`;
     return `<div class="card post" data-id="${p.id}">
       <div class="top"><div class="mini-av">${face(p.user.avatar)}</div>
-        <div class="grow"><b>${esc(p.user.name)}</b><div class="muted small">loved ${w.e} ${w.short} · ${ago(p.createdAt)}</div></div>
+        <div class="grow"><b>${esc(p.user.name)}</b>${handleTag(p.user)}<div class="muted small">loved ${w.e} ${w.short} · ${ago(p.createdAt)}</div></div>
         <span class="pill">+${p.stars}⭐</span></div>
       ${desc}
       <div class="meta">${link}</div>
@@ -299,7 +334,7 @@
       const tasks = await api('/tasks');
       state.tasks = tasks;
       const open = tasks.filter(t => !t.doneAt), done = tasks.filter(t => t.doneAt);
-      const item = t => `<div class="row"><div class="mini-av">${face(t.user.avatar)}</div><div class="grow"><b>${esc(t.user.name)}</b><div class="small" style="${t.doneAt ? 'opacity:.7' : ''}">${t.doneAt ? '✅ ' : ''}${esc(t.title)}</div></div><span class="muted small">${ago(t.doneAt || t.createdAt)}</span></div>`;
+      const item = t => `<div class="row"><div class="mini-av">${face(t.user.avatar)}</div><div class="grow"><b>${esc(t.user.name)}</b>${handleTag(t.user)}<div class="small" style="${t.doneAt ? 'opacity:.7' : ''}">${t.doneAt ? '✅ ' : ''}${esc(t.title)}</div></div><span class="muted small">${ago(t.doneAt || t.createdAt)}</span></div>`;
       body.innerHTML = `<div class="card"><h3>Working on it 💪</h3>${open.length ? open.map(item).join('') : '<p class="muted small" style="margin-top:8px">No open goals. Add yours in Missions!</p>'}</div>
         ${done.length ? `<div class="card"><h3>Done 🎉</h3>${done.slice(0, 30).map(item).join('')}</div>` : ''}
         <button class="btn ghost block" id="toMissions">＋ Add my own goal</button>`;
@@ -315,7 +350,7 @@
     const medal = ['🥇', '🥈', '🥉'][i];
     const me = r.id === state.me.user.id;
     return `<div class="row ${me ? 'me-row' : ''}"><div class="rank">${medal || i + 1}</div><div class="mini-av">${face(r.avatar)}</div>
-      <div class="grow"><b>${esc(r.name)}${me ? ' (you)' : ''}</b><div class="muted small">${r.acts} act${r.acts === 1 ? '' : 's'} of love</div></div><span class="pill">${r.stars}⭐</span></div>`;
+      <div class="grow"><b>${esc(r.name)}${me ? ' (you)' : ''}</b>${handleTag(r)}<div class="muted small">${r.acts} act${r.acts === 1 ? '' : 's'} of love</div></div><span class="pill">${r.stars}⭐</span></div>`;
   }
 
   // ---------------- me: stats, avatar, settings, admin ----------------
@@ -328,7 +363,7 @@
     const bars = (by, max) => Object.entries(WHO).map(([k, w]) => `<div class="bar"><span>${w.e} ${w.short}</span><div class="track"><div class="fill" style="width:${by[k] / max * 100}%;background:${w.color}"></div></div><b style="text-align:right">${by[k]}</b></div>`).join('');
     view.innerHTML = `
       <div class="hello"><button class="av" id="editAv">${face(me.user.avatar)}</button>
-        <div class="grow"><h1>${esc(me.user.name)}</h1><button class="link" id="editAv2">✏️ Edit avatar & name</button></div></div>
+        <div class="grow"><h1>${esc(me.user.name)}</h1>${me.user.handle ? `<p class="muted small">@${esc(me.user.handle)}</p>` : ''}<button class="link" id="editAv2">✏️ Edit character & username</button></div></div>
       <div class="section-title" style="margin-top:4px"><h3>My stats</h3></div>
       <div class="stat-grid">
         <div class="stat"><b>${s.totalStars}⭐</b><span>Total stars</span></div>
@@ -372,16 +407,19 @@
   ];
   const SWATCH = ['skin', 'hairColor', 'outfitColor'];
   function openAvatarEditor(first = false) {
-    let av = Object.assign({}, Avatar.DEFAULTS[(state.me.user.avatar && state.me.user.avatar.base) || 'girl'], state.me.user.avatar || {});
-    let cur = 'base';
+    const u = state.me.user;
+    const g0 = u.gender || (u.avatar && u.avatar.base) || 'girl';
+    let av = Object.assign({}, Avatar.DEFAULTS[g0], u.avatar || {}, { base: g0 });
+    const tabs = EDIT_TABS.filter(([k]) => k !== 'base' || !u.genderLocked);
+    let cur = tabs[0][0];
     openSheet(`
       <div class="sheet-head"><h2>${first ? 'Create your character ✨' : 'My character'}</h2>${first ? '' : '<button class="x" data-close>✕</button>'}</div>
       <div class="editor-preview" id="prev"></div>
       <div style="text-align:center;margin-bottom:10px"><button class="link" id="rand">🎲 Surprise me</button></div>
-      <div class="opt-tabs" id="otabs">${EDIT_TABS.map(([k, l]) => `<button data-k="${k}">${l}</button>`).join('')}</div>
+      <div class="opt-tabs" id="otabs">${tabs.map(([k, l]) => `<button data-k="${k}">${l}</button>`).join('')}</div>
       <div id="opts"></div>
-      <label class="lbl" for="nm">Display name</label>
-      <input type="text" id="nm" maxlength="40" value="${esc(state.me.user.name)}">
+      <label class="lbl" for="nm">Username</label>
+      <input type="text" id="nm" maxlength="20" autocapitalize="none" value="${esc(u.handle || '')}">
       <button class="btn block" id="saveAv" style="margin-top:14px">Save</button>`);
     const draw = () => {
       $('#prev').innerHTML = Avatar.render(av);
@@ -408,13 +446,13 @@
     $('#rand').onclick = () => {
       haptic();
       const pick = k => { const o = Avatar.OPTIONS[k]; return o[Math.floor(Math.random() * o.length)][0]; };
-      av = { base: av.base, skin: av.skin };
-      ['hair', 'hairColor', 'eyes', 'mouth', 'outfit', 'outfitColor', 'accessory', 'pose', 'background'].forEach(k => av[k] = pick(k));
+      // Only fun extras are random. Male/Female, skin, hair and background stay as the person chose.
+      ['eyes', 'mouth', 'outfit', 'outfitColor', 'accessory', 'pose'].forEach(k => av[k] = pick(k));
       draw();
     };
     $('#saveAv').onclick = async () => {
       try {
-        await api('/profile', { method: 'POST', body: { avatar: av, name: $('#nm').value } });
+        await api('/profile', { method: 'POST', body: { avatar: av, handle: $('#nm').value, gender: av.base } });
         await refreshMe(); closeSheet(); hearts(8); toast('Looking good! 😍'); go(state.tab);
       } catch (e) { toast(e.message); }
     };
