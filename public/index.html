@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Love Better</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="view" aria-live="polite"><div class="loading">💖</div></main>
+
+  <nav class="tabs" id="tabs" hidden>
+    <button data-tab="home" class="active"><span>🏠</span>Home</button>
+    <button data-tab="missions"><span>🎯</span>Missions</button>
+    <button data-tab="log" class="log-btn" aria-label="Log an act of love"><span>＋</span></button>
+    <button data-tab="group"><span>💞</span>Together</button>
+    <button data-tab="me"><span>😊</span>Me</button>
+  </nav>
+
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+  <section class="sheet" id="sheet" hidden role="dialog" aria-modal="true"></section>
+  <div class="toast" id="toast" hidden></div>
+  <div id="fx"></div>
+
+  <script src="avatar.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
