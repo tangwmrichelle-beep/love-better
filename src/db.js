@@ -41,6 +41,14 @@ async function init() {
   CREATE TABLE IF NOT EXISTS broadcasts (
     id SERIAL PRIMARY KEY, sender_id BIGINT, message TEXT NOT NULL, sent INTEGER, failed INTEGER, created_at BIGINT NOT NULL);
   `);
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS real_name TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS handle TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS gender_locked INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded INTEGER NOT NULL DEFAULT 0;
+    CREATE UNIQUE INDEX IF NOT EXISTS users_handle ON users (LOWER(handle));
+  `);
   if ((await get('SELECT COUNT(*) n FROM missions')).n === 0) {
     const now = Date.now();
     for (const m of PRESET_MISSIONS) await run('INSERT INTO missions (emoji, title, description, created_at) VALUES (?,?,?,?)', [m.emoji, m.title, m.description, now]);
