@@ -23,7 +23,8 @@ const config = {
     { key: 'day1', emoji: '🎄', title: 'XMAS Service Day 1', date: process.env.XMAS_DAY1 || '2026-12-24T00:00:00+08:00' },
     { key: 'newyear', emoji: '🎆', title: 'New Year 2027', date: process.env.NEW_YEAR || '2027-01-01T00:00:00+08:00' },
   ],
-  stars: { stranger: 3, friend: 2, cg: 1 },
+  // One heart per act of love, coloured by who you loved.
+  stars: { stranger: 1, friend: 1, family: 1, cg: 1 },
   tzOffsetMinutes: 8 * 60, // Singapore time
 };
 

@@ -1,12 +1,13 @@
 // Shared logic used by both the Telegram bot and the mini app API.
 const db = require('./db');
 const config = require('./config');
-const { VERSES } = require('./missions');
+const { VERSES, MISSION_CATEGORIES } = require('./missions');
+const { POINTS, ITEMS, COLOURS, DEFAULT_STYLE } = require('./shop');
 const { genderForName, tidyName } = require('./members');
 
 const DAY = 24 * 3600 * 1000;
 const OFFSET = config.tzOffsetMinutes * 60 * 1000;
-const RECIPIENT_LABEL = { stranger: 'someone they don’t know', friend: 'a friend', cg: 'someone in CG' };
+const RECIPIENT_LABEL = { stranger: 'someone new', friend: 'a friend', family: 'a family member', cg: 'someone in the CG' };
 
 // ---------- Photos (stored in the database, so nothing is lost when the free server restarts) ----------
 const MAX_PHOTOS = 4, MAX_PHOTO_BYTES = 1.5 * 1024 * 1024;
@@ -57,11 +58,11 @@ function publicUser(u) {
   let avatar = null;
   try { avatar = u.avatar ? JSON.parse(u.avatar) : null; } catch { }
   if (avatar && u.gender) avatar.base = u.gender;
-  return { id: u.id, name: nameOf(u), handle: u.handle || null, avatar };
+  return { id: u.id, name: nameOf(u), handle: u.handle || null, avatar, jar: jarStyleOf(u) };
 }
 
 async function logAct(userId, { description, recipient, isPublic = true, missionId = null, taskId = null, photos = [], photoBuffers = [] }) {
-  description = String(description || '').trim().slice(0, 1000);
+  description = String(description || '').trim(); // no length limit: write as much as you like
   if (!description) throw new Error('Please describe what you did.');
   if (!config.stars[recipient]) throw new Error('Please choose who you loved.');
   missionId = Number(missionId) || null; taskId = Number(taskId) || null;
@@ -96,7 +97,7 @@ async function streakFor(userId) {
   return streak;
 }
 
-const byTypeOf = rows => { const b = { stranger: 0, friend: 0, cg: 0 }; rows.forEach(r => b[r.recipient] = r.n); return b; };
+const byTypeOf = rows => { const b = { stranger: 0, friend: 0, family: 0, cg: 0 }; rows.forEach(r => b[r.recipient] = r.n); return b; };
 
 async function userStats(userId) {
   const [tot, week, types, missionsDone, tasksDone, board, streak] = await Promise.all([
@@ -116,42 +117,52 @@ async function userStats(userId) {
 async function groupStats() {
   const today = localDay(Date.now());
   const since = (today - 13) * DAY - OFFSET;
-  const [tot, week, todayRow, types, members, recent] = await Promise.all([
+  const [tot, week, todayRow, types, members, recent, pts] = await Promise.all([
     db.get('SELECT COUNT(*) acts, COALESCE(SUM(stars),0) stars FROM acts'),
     db.get('SELECT COUNT(*) acts, COALESCE(SUM(stars),0) stars FROM acts WHERE created_at >= ?', [startOfWeek()]),
     db.get('SELECT COUNT(*) acts FROM acts WHERE created_at >= ?', [today * DAY - OFFSET]),
     db.all('SELECT recipient, COUNT(*) n FROM acts GROUP BY recipient'),
     db.get('SELECT COUNT(*) n FROM users WHERE approved = 1'),
     db.all('SELECT created_at FROM acts WHERE created_at >= ?', [since]),
+    db.get(`SELECT COALESCE(SUM(CASE recipient ${Object.entries(POINTS).map(([k, v]) => `WHEN '${k}' THEN ${Number(v)}`).join(' ')} ELSE 0 END),0) n FROM acts`),
   ]);
   const daily = Array(14).fill(0);
   recent.forEach(r => { const i = localDay(r.created_at) - (today - 13); if (i >= 0 && i < 14) daily[i]++; });
   return { totalActs: tot.acts, totalStars: tot.stars, weekActs: week.acts, weekStars: week.stars, todayActs: todayRow.acts,
-    byType: byTypeOf(types), members: members.n, goal: config.groupGoal, daily };
+    byType: byTypeOf(types), members: members.n, goal: await groupGoal(), daily, totalPoints: Number(pts.n) };
 }
 
 async function leaderboard(period = 'all') {
   const since = period === 'week' ? startOfWeek() : 0;
   const rows = await db.all(`
-    SELECT u.id, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender, u.created_at, COALESCE(SUM(a.stars),0) stars, COUNT(a.id) acts
+    SELECT u.id, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender, u.jar_style, u.created_at, COALESCE(SUM(a.stars),0) stars, COUNT(a.id) acts
     FROM users u LEFT JOIN acts a ON a.user_id = u.id AND a.created_at >= ?
     WHERE u.approved = 1
     GROUP BY u.id ORDER BY stars DESC, acts DESC, u.created_at ASC`, [since]);
-  return rows.map(r => ({ ...publicUser(r), stars: r.stars, acts: r.acts }));
+  // The last hearts in each person's jar, so Ranks can show everyone's jar.
+  const recent = await db.all('SELECT user_id, recipient FROM (SELECT user_id, recipient, id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY id DESC) rn FROM acts) x WHERE rn <= 20 ORDER BY id ASC');
+  return rows.map(r => ({ ...publicUser(r), stars: r.stars, acts: r.acts,
+    hearts: recent.filter(h => h.user_id === r.id).map(h => ({ id: 0, r: h.recipient, name: '' })) }));
 }
 
 async function feed(viewerId, limit = 50, before = null) {
   const rows = await db.all(`
     SELECT a.*, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender, m.title mission_title, m.emoji mission_emoji, t.title task_title,
-      (SELECT COUNT(*) FROM cheers c WHERE c.act_id = a.id) cheers,
-      (SELECT COUNT(*) FROM cheers c WHERE c.act_id = a.id AND c.user_id = ?) cheered
+      (SELECT COUNT(*) FROM reactions c WHERE c.act_id = a.id) cheers,
+      (SELECT COUNT(*) FROM reactions c WHERE c.act_id = a.id AND c.user_id = ?) cheered
     FROM acts a JOIN users u ON u.id = a.user_id
     LEFT JOIN missions m ON m.id = a.mission_id
     LEFT JOIN tasks t ON t.id = a.task_id
     WHERE (?::int IS NULL OR a.id < ?::int)
     ORDER BY a.id DESC LIMIT ?`, [viewerId, before, before, limit]);
-  const photos = rows.length ? await db.all('SELECT id, act_id, token FROM act_photos WHERE act_id = ANY(?::int[]) ORDER BY position', [rows.map(r => r.id)]) : [];
+  const ids = rows.map(r => r.id);
+  const photos = rows.length ? await db.all('SELECT id, act_id, token FROM act_photos WHERE act_id = ANY(?::int[]) ORDER BY position', [ids]) : [];
+  const reacts = rows.length ? await db.all('SELECT act_id, user_id, emoji FROM reactions WHERE act_id = ANY(?::int[])', [ids]) : [];
+  const notes = rows.length ? await db.all(`SELECT n.*, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender
+    FROM act_notes n JOIN users u ON u.id = n.user_id WHERE n.act_id = ANY(?::int[]) ORDER BY n.id`, [ids]) : [];
   return rows.map(r => ({
+    reactions: reactionSummary(reacts.filter(x => x.act_id === r.id), viewerId),
+    notes: notes.filter(n => n.act_id === r.id).map(n => noteOut(n, viewerId)),
     photos: r.is_public || r.user_id === viewerId ? photos.filter(p => p.act_id === r.id).map(p => `/photos/a${p.id}-${p.token}`) : [],
     id: r.id,
     user: publicUser({ id: r.user_id, display_name: r.display_name, first_name: r.first_name, username: r.username, avatar: r.avatar, real_name: r.real_name, handle: r.handle, gender: r.gender }),
@@ -161,6 +172,41 @@ async function feed(viewerId, limit = 50, before = null) {
     task: r.task_title || null,
     cheers: r.cheers, cheered: !!r.cheered, mine: r.user_id === viewerId, createdAt: r.created_at,
   }));
+}
+
+// Reactions on a post. Everyone can add any of these, once each.
+const REACTIONS = ['💛', '🔥', '🤯', '🙌', '🥹', '🙏'];
+function reactionSummary(list, viewerId) {
+  return REACTIONS.map(e => ({ emoji: e, count: list.filter(x => x.emoji === e).length, mine: list.some(x => x.emoji === e && Number(x.user_id) === Number(viewerId)) }));
+}
+async function toggleReaction(userId, actId, emoji) {
+  if (!REACTIONS.includes(emoji)) throw new Error('Unknown reaction');
+  if (!(await db.get('SELECT id FROM acts WHERE id = ?', [actId]))) throw new Error('Not found');
+  const removed = await db.run('DELETE FROM reactions WHERE act_id = ? AND user_id = ? AND emoji = ?', [actId, userId, emoji]);
+  if (!removed) await db.run('INSERT INTO reactions (act_id, user_id, emoji) VALUES (?,?,?) ON CONFLICT DO NOTHING', [actId, userId, emoji]);
+  return { reactions: reactionSummary(await db.all('SELECT user_id, emoji FROM reactions WHERE act_id = ?', [actId]), userId) };
+}
+// Notes of encouragement under a post.
+function noteOut(n, viewerId) {
+  return { id: n.id, body: n.body, createdAt: n.created_at, mine: Number(n.user_id) === Number(viewerId),
+    user: publicUser({ id: n.user_id, display_name: n.display_name, first_name: n.first_name, username: n.username, avatar: n.avatar, real_name: n.real_name, handle: n.handle, gender: n.gender }) };
+}
+async function addNote(userId, actId, body) {
+  body = String(body || '').trim();
+  if (!body) throw new Error('Write a note first.');
+  if (body.length > 2000) throw new Error('That note is a little long. Keep it under 2000 characters.');
+  const act = await db.get('SELECT id, user_id FROM acts WHERE id = ?', [actId]);
+  if (!act) throw new Error('Not found');
+  const row = await db.get('INSERT INTO act_notes (act_id, user_id, body, created_at) VALUES (?,?,?,?) RETURNING id', [actId, userId, body, Date.now()]);
+  const n = await db.get(`SELECT n.*, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender
+    FROM act_notes n JOIN users u ON u.id = n.user_id WHERE n.id = ?`, [row.id]);
+  return { note: noteOut(n, userId), ownerId: act.user_id };
+}
+async function deleteNote(userId, noteId, isAdmin) {
+  const n = await db.get('SELECT user_id FROM act_notes WHERE id = ?', [noteId]);
+  if (!n || (!isAdmin && Number(n.user_id) !== Number(userId))) return false;
+  await db.run('DELETE FROM act_notes WHERE id = ?', [noteId]);
+  return true;
 }
 
 async function toggleCheer(userId, actId) {
@@ -176,14 +222,111 @@ function missions(userId) {
     FROM missions m WHERE m.active = 1 ORDER BY m.id`, [userId]);
 }
 
-async function addMission(userId, { emoji, title, description }) {
+async function addMission(userId, { emoji, title, description, category }) {
   title = String(title || '').trim().slice(0, 120);
   if (!title) throw new Error('Mission needs a title.');
-  await db.run('INSERT INTO missions (emoji, title, description, created_by, created_at) VALUES (?,?,?,?,?)',
-    [String(emoji || '💖').slice(0, 8), title, String(description || '').trim().slice(0, 300), userId, Date.now()]);
+  if (!['hear', 'see', 'delight'].includes(category)) category = 'delight';
+  await db.run('INSERT INTO missions (emoji, title, description, category, created_by, created_at) VALUES (?,?,?,?,?,?)',
+    [String(emoji || '💛').slice(0, 8), title, String(description || '').trim().slice(0, 300), category, userId, Date.now()]);
+}
+
+// ---------- Points & jar shop ----------
+function jarStyleOf(u) {
+  let s = {}; try { s = u.jar_style ? JSON.parse(u.jar_style) : {}; } catch { }
+  const st = { ...DEFAULT_STYLE, ...s };
+  // An item that is no longer in the shop (e.g. the old heart jar) falls back to the default.
+  for (const k of ['jar', 'tag', 'bg']) if (!ITEMS.some(i => i.id === st[k] && i.area === k)) st[k] = DEFAULT_STYLE[k];
+  return st;
+}
+async function prices() {
+  const row = await db.get("SELECT value FROM settings WHERE key = 'prices_v2'");
+  let saved = {}; try { saved = row ? JSON.parse(row.value) : {}; } catch { }
+  return ITEMS.map(i => ({ ...i, price: Number.isFinite(saved[i.id]) ? saved[i.id] : i.price }));
+}
+async function points(userId) {
+  const cases = Object.entries(POINTS).map(([k, v]) => `WHEN '${k}' THEN ${Number(v)}`).join(' ');
+  const earned = (await db.get(`SELECT COALESCE(SUM(CASE recipient ${cases} ELSE 0 END),0) n FROM acts WHERE user_id = ?`, [userId])).n;
+  const spent = (await db.get('SELECT COALESCE(SUM(price),0) n FROM purchases WHERE user_id = ?', [userId])).n;
+  return { earned, spent, balance: Math.max(0, earned - spent) };
+}
+async function shop(userId) {
+  const [u, items, pts, owned] = await Promise.all([getUser(userId), prices(), points(userId),
+    db.all('SELECT item_id FROM purchases WHERE user_id = ?', [userId])]);
+  const own = new Set(owned.map(r => r.item_id));
+  return { points: pts, earnRates: POINTS, colours: COLOURS, style: jarStyleOf(u),
+    items: items.map(i => ({ ...i, owned: i.price === 0 || own.has(i.id) })) };
+}
+async function buyItem(userId, itemId) {
+  const item = (await prices()).find(i => i.id === itemId);
+  if (!item) throw new Error('That item is not in the shop.');
+  const already = await db.get('SELECT 1 FROM purchases WHERE user_id = ? AND item_id = ?', [userId, itemId]);
+  if (!already && item.price > 0) {
+    const { balance } = await points(userId);
+    if (balance < item.price) throw new Error(`You need ${item.price - balance} more points for this.`);
+    await db.run('INSERT INTO purchases (user_id, item_id, price, created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING', [userId, itemId, item.price, Date.now()]);
+  }
+  return equip(userId, { [item.area]: itemId });
+}
+async function equip(userId, change) {
+  const u = await getUser(userId), style = jarStyleOf(u), items = await prices();
+  const owned = new Set((await db.all('SELECT item_id FROM purchases WHERE user_id = ?', [userId])).map(r => r.item_id));
+  for (const area of ['jar', 'tag', 'bg']) {
+    if (!change[area]) continue;
+    const item = items.find(i => i.id === change[area] && i.area === area);
+    if (!item) throw new Error('Unknown item.');
+    if (item.price > 0 && !owned.has(item.id)) throw new Error('Buy this first.');
+    style[area] = item.id;
+  }
+  if (change.color) { if (!COLOURS.includes(change.color)) throw new Error('Unknown colour.'); style.color = change.color; }
+  await db.run('UPDATE users SET jar_style = ? WHERE id = ?', [JSON.stringify(style), userId]);
+  return shop(userId);
+}
+async function setPrices(map) {
+  const clean = {};
+  for (const i of ITEMS) if (map[i.id] !== undefined && map[i.id] !== '') {
+    const n = Math.round(Number(map[i.id])); if (Number.isFinite(n) && n >= 0 && n <= 100000) clean[i.id] = n;
+  }
+  await db.run("INSERT INTO settings (key, value) VALUES ('prices_v2', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [JSON.stringify(clean)]);
 }
 
 const archiveMission = (id) => db.run('UPDATE missions SET active = 0 WHERE id = ?', [id]);
+// Admin edits a mission. Marking it as the admin's stops the starter-mission sync from changing it back.
+async function editMission(userId, id, { emoji, title, description, category }) {
+  title = String(title || '').trim().slice(0, 120);
+  if (!title) throw new Error('Mission needs a title.');
+  if (!['hear', 'see', 'delight'].includes(category)) category = 'delight';
+  await db.run('UPDATE missions SET emoji = ?, title = ?, description = ?, category = ?, created_by = ? WHERE id = ?',
+    [String(emoji || '💛').slice(0, 8), title, String(description || '').trim().slice(0, 300), category, userId, id]);
+}
+
+// The 3 sections (hear / see / delight). The admin can change their wording; anything not changed comes from missions.js.
+async function savedCategories() {
+  const row = await db.get("SELECT value FROM settings WHERE key = 'categories'");
+  try { return row ? JSON.parse(row.value) : {}; } catch { return {}; }
+}
+// The AW2 jar's star points target. Admins change it in the app; GROUP_GOAL is only the starting value.
+async function groupGoal() {
+  const row = await db.get("SELECT value FROM settings WHERE key = 'group_goal'");
+  const n = row ? Number(JSON.parse(row.value)) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : config.groupGoal;
+}
+async function setGroupGoal(v) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n < 1 || n > 1000000) throw new Error('Pick a number from 1 upwards.');
+  await db.run("INSERT INTO settings (key, value) VALUES ('group_goal', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [JSON.stringify(n)]);
+  return { goal: n };
+}
+async function categories() {
+  const saved = await savedCategories();
+  return MISSION_CATEGORIES.map(c => ({ ...c, ...(saved[c.key] || {}) }));
+}
+async function editCategory(key, { heart, about }) {
+  if (!MISSION_CATEGORIES.some(c => c.key === key)) throw new Error('Unknown section.');
+  const saved = await savedCategories();
+  saved[key] = { heart: String(heart || '').trim().slice(0, 120), about: String(about || '').trim().slice(0, 400) };
+  await db.run("INSERT INTO settings (key, value) VALUES ('categories', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [JSON.stringify(saved)]);
+}
+
 
 async function tasks() {
   const rows = await db.all(`SELECT t.*, u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender FROM tasks t JOIN users u ON u.id = t.user_id
@@ -234,6 +377,44 @@ async function updateProfile(userId, { handle, avatar, notify, gender }) {
 const setNotify = (userId, on) => db.run('UPDATE users SET notify = ? WHERE id = ?', [on ? 1 : 0, userId]);
 const logBroadcast = (senderId, message, sent, failed) =>
   db.run('INSERT INTO broadcasts (sender_id, message, sent, failed, created_at) VALUES (?,?,?,?,?)', [senderId, message, sent, failed, Date.now()]);
+
+// ---------- Notifications (the 🔔): admin announcements + every new post ----------
+const userCols = 'u.display_name, u.first_name, u.username, u.avatar, u.real_name, u.handle, u.gender';
+const userOf = (id, r) => publicUser({ id, display_name: r.display_name, first_name: r.first_name, username: r.username, avatar: r.avatar, real_name: r.real_name, handle: r.handle, gender: r.gender });
+async function notifications(viewerId) {
+  const [notes, acts] = await Promise.all([
+    db.all(`SELECT n.*, ${userCols} FROM announcements n LEFT JOIN users u ON u.id = n.sender_id ORDER BY n.id DESC LIMIT 50`),
+    db.all(`SELECT a.id, a.user_id, a.recipient, a.description, a.is_public, a.created_at, ${userCols} FROM acts a JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 50`),
+  ]);
+  const list = [
+    ...notes.map(n => ({ kind: 'admin', id: n.id, title: n.title, body: n.body, createdAt: Number(n.created_at), from: n.sender_id ? userOf(n.sender_id, n) : null })),
+    ...acts.map(a => {
+      const u = userOf(a.user_id, a);
+      const show = a.is_public || Number(a.user_id) === Number(viewerId);
+      return { kind: 'act', id: a.id, recipient: a.recipient, title: `${u.name} loved ${RECIPIENT_LABEL[a.recipient]}`,
+        body: show && a.description ? a.description : null, createdAt: Number(a.created_at), from: u, mine: Number(a.user_id) === Number(viewerId) };
+    }),
+  ].sort((x, y) => y.createdAt - x.createdAt).slice(0, 60);
+  return list;
+}
+async function unreadCount(userId) {
+  const u = await db.get('SELECT notif_seen_at FROM users WHERE id = ?', [userId]);
+  const seen = Math.max(u ? Number(u.notif_seen_at) : 0, Date.now() - 7 * DAY); // only the last week counts as new
+  const [a, b] = await Promise.all([
+    db.get('SELECT COUNT(*) n FROM announcements WHERE created_at > ?', [seen]),
+    db.get('SELECT COUNT(*) n FROM acts WHERE created_at > ? AND user_id <> ?', [seen, userId]),
+  ]);
+  return Number(a.n) + Number(b.n);
+}
+const markNotifsSeen = userId => db.run('UPDATE users SET notif_seen_at = ? WHERE id = ?', [Date.now(), userId]);
+async function addAnnouncement(senderId, { title, body }) {
+  title = String(title || '').trim(); body = String(body || '').trim();
+  if (!title) throw new Error('Add a header first.');
+  if (!body) throw new Error('Write the message first.');
+  const row = await db.get('INSERT INTO announcements (sender_id, title, body, created_at) VALUES (?,?,?,?) RETURNING id', [senderId, title, body, Date.now()]);
+  return { id: row.id, title, body };
+}
+const deleteAnnouncement = id => db.run('DELETE FROM announcements WHERE id = ?', [id]);
 
 function verseOfTheDay() { return VERSES[localDay(Date.now()) % VERSES.length]; }
 
@@ -286,10 +467,67 @@ async function toggleStoryLike(userId, storyId) {
 const getPhoto = (id, token, kind = 'story') =>
   db.get(`SELECT mime, data FROM ${kind === 'act' ? 'act_photos' : 'story_photos'} WHERE id = ? AND token = ?`, [id, token]);
 
+// ---------- Heart jar: everyone's hearts, and the acts behind them ----------
+async function jar(viewerId, userId) {
+  const u = await getUser(userId);
+  if (!u || !u.approved) return null;
+  const [types, seq] = await Promise.all([
+    db.all('SELECT recipient, COUNT(*) n FROM acts WHERE user_id = ? GROUP BY recipient', [userId]),
+    db.all('SELECT id, recipient FROM acts WHERE user_id = ? ORDER BY id ASC', [userId]),
+  ]);
+  const name = nameOf(u);
+  return { user: publicUser(u), byType: byTypeOf(types), total: seq.length, hearts: seq.map(r => ({ id: r.id, r: r.recipient, name })), mine: viewerId === userId };
+}
+
+// The whole CG's shared jar: every heart from everyone, oldest first.
+async function groupJar() {
+  const [types, seq, members] = await Promise.all([
+    db.all('SELECT recipient, COUNT(*) n FROM acts GROUP BY recipient'),
+    db.all('SELECT a.id, a.recipient, u.real_name, u.display_name, u.first_name, u.username FROM acts a JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 400'),
+    db.get('SELECT COUNT(*) n FROM users WHERE approved = 1'),
+  ]);
+  const total = types.reduce((t, r) => t + r.n, 0);
+  const points = types.reduce((t, r) => t + (POINTS[r.recipient] || 0) * Number(r.n), 0);
+  return { byType: byTypeOf(types), total, points, hearts: seq.reverse().map(r => ({ id: r.id, r: r.recipient, name: nameOf(r) })), goal: await groupGoal(), members: members.n };
+}
+
+// One heart's story, for tapping a heart in a jar. Private acts show only who and when.
+async function actDetail(viewerId, actId) {
+  const r = await db.get(`SELECT a.*, m.title mission_title, m.emoji mission_emoji, t.title task_title, u.id uid, u.real_name, u.display_name, u.first_name, u.username, u.handle, u.avatar, u.gender
+    FROM acts a JOIN users u ON u.id = a.user_id LEFT JOIN missions m ON m.id = a.mission_id LEFT JOIN tasks t ON t.id = a.task_id WHERE a.id = ?`, [actId]);
+  if (!r) return null;
+  const visible = r.uid === viewerId || r.is_public;
+  const photos = visible ? await db.all('SELECT id, token FROM act_photos WHERE act_id = ? ORDER BY position', [actId]) : [];
+  return { id: r.id, recipient: r.recipient, createdAt: r.created_at, isPublic: !!r.is_public, mine: r.uid === viewerId,
+    user: publicUser({ ...r, id: r.uid }), description: visible ? r.description : null, photos: photos.map(p => `/photos/a${p.id}-${p.token}`),
+    mission: r.mission_title ? { title: r.mission_title, emoji: r.mission_emoji } : null, task: r.task_title || null };
+}
+
+async function userActs(viewerId, userId, recipient = null) {
+  if (recipient && !config.stars[recipient]) recipient = null;
+  const rows = await db.all(`SELECT a.*, m.title mission_title, m.emoji mission_emoji, t.title task_title FROM acts a
+    LEFT JOIN missions m ON m.id = a.mission_id LEFT JOIN tasks t ON t.id = a.task_id
+    WHERE a.user_id = ? AND (?::text IS NULL OR a.recipient = ?::text) ORDER BY a.id DESC LIMIT 200`, [userId, recipient, recipient]);
+  const photos = rows.length ? await db.all('SELECT id, act_id, token FROM act_photos WHERE act_id = ANY(?::int[]) ORDER BY position', [rows.map(r => r.id)]) : [];
+  const own = viewerId === userId;
+  return rows.map(r => {
+    const visible = own || r.is_public;
+    return {
+      id: r.id, recipient: r.recipient, createdAt: r.created_at, isPublic: !!r.is_public,
+      description: visible ? r.description : null,
+      photos: visible ? photos.filter(p => p.act_id === r.id).map(p => `/photos/a${p.id}-${p.token}`) : [],
+      mission: r.mission_title ? { title: r.mission_title, emoji: r.mission_emoji } : null, task: r.task_title || null,
+    };
+  });
+}
+
 const recipients = () => db.all('SELECT * FROM users WHERE approved = 1 AND notify = 1');
 
 module.exports = {
+  notifications, unreadCount, markNotifsSeen, addAnnouncement, deleteAnnouncement,
+  groupGoal, setGroupGoal,
+  toggleReaction, addNote, deleteNote, REACTIONS,
   RECIPIENT_LABEL, nameOf, upsertUser, getUser, tryJoinCode, publicUser, logAct, deleteAct, userStats, groupStats,
-  leaderboard, feed, toggleCheer, missions, addMission, archiveMission, tasks, addTask, deleteTask, updateProfile, onboard, genderForName,
-  setNotify, logBroadcast, addStory, stories, deleteStory, toggleStoryLike, getPhoto, verseOfTheDay, countdown, recipients,
+  leaderboard, feed, toggleCheer, missions, addMission, archiveMission, shop, buyItem, equip, setPrices, points, editMission, categories, editCategory, tasks, addTask, deleteTask, updateProfile, onboard, genderForName,
+  setNotify, logBroadcast, jar, groupJar, actDetail, userActs, addStory, stories, deleteStory, toggleStoryLike, getPhoto, verseOfTheDay, countdown, recipients,
 };

@@ -4,15 +4,19 @@ const config = require('./config');
 const svc = require('./service');
 
 const bot = new Bot(config.botToken || 'missing-token');
+// Long posts are saved in full; chat messages only echo the start of them (Telegram messages max out at 4096 characters).
+const preview = t => { t = String(t || ''); return t.length > 700 ? t.slice(0, 700).trimEnd() + '…' : t; };
 const pendingLogs = new Map(); // userId -> { text, photoId } waiting for a "who did you love?" answer
 
+const HEART = { stranger: '💛', friend: '🩵', family: '🩷', cg: '💜' };
 const esc = (s) => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const openAppKeyboard = (label = '💖 Open Love Better') =>
   config.webAppUrl ? new InlineKeyboard().webApp(label, config.webAppUrl) : undefined;
 const whoKeyboard = () => new InlineKeyboard()
-  .text('🌍 Someone I don’t know (+3⭐)', 'who:stranger').row()
-  .text('🤗 A friend (+2⭐)', 'who:friend').row()
-  .text('⛪ Someone in CG (+1⭐)', 'who:cg').row()
+  .text('💛 Someone new', 'who:stranger').row()
+  .text('🩵 A friend', 'who:friend').row()
+  .text('🩷 A family member', 'who:family').row()
+  .text('💜 Someone in the CG', 'who:cg').row()
   .text('Cancel', 'who:cancel');
 
 function countdownText() {
@@ -49,9 +53,9 @@ async function sendWelcome(ctx) {
     `💖 <b>Welcome to ${esc(config.appName)}, ${esc(name)}!</b>\n\n` +
     `Small acts of love can change someone’s day. Let’s spur one another on to love better, together.\n\n` +
     `<i>“${esc(v.text)}”</i> — ${esc(v.ref)}\n\n` +
-    `<b>Stars for every act of love</b>\n🌍 Someone you don’t know: +3⭐\n🤗 A friend: +2⭐\n⛪ Someone in CG: +1⭐\n\n` +
+    `<b>Every act of love adds a heart to your jar</b>\n💛 Someone new\n🩵 A friend\n🩷 A family member\n💜 Someone in the CG\n\n` +
     `Tap the button below to open the app, or use:\n` +
-    `/log <i>what you did</i> to log quickly (or send a photo with a caption)\n/stars to see your stars\n/leaderboard to see the top lovers\n/countdown for the XMAS service countdown`,
+    `/log <i>what you did</i> to log quickly (or send a photo with a caption)\n/hearts to see your heart jar\n/leaderboard to see everyone’s hearts\n/countdown for the XMAS service countdown`,
     { parse_mode: 'HTML', reply_markup: openAppKeyboard() });
 }
 
@@ -63,7 +67,7 @@ bot.command('log', async ctx => {
   const text = (ctx.match || '').trim();
   if (!text) return ctx.reply('Tell me what you did after /log, for example:\n/log Bought kopi for the cleaner auntie ☕', { reply_markup: openAppKeyboard('Or log in the app') });
   pendingLogs.set(ctx.from.id, { text });
-  await ctx.reply(`💖 “${esc(text)}”\n\nWho did you love?`, { parse_mode: 'HTML', reply_markup: whoKeyboard() });
+  await ctx.reply(`💖 “${esc(preview(text))}”\n\nWho did you love?`, { parse_mode: 'HTML', reply_markup: whoKeyboard() });
 });
 
 bot.callbackQuery(/^who:(\w+)$/, async ctx => {
@@ -80,23 +84,23 @@ bot.callbackQuery(/^who:(\w+)$/, async ctx => {
   if (pending.photoId) { try { photoBuffers = [await downloadPhoto(pending.photoId)]; } catch (e) { console.error('Photo download failed:', e.message); } }
   const act = await svc.logAct(ctx.from.id, { description: text, recipient: who, photoBuffers });
   const stats = await svc.userStats(ctx.from.id);
-  await ctx.editMessageText(`✅ Logged! <b>+${act.stars}⭐</b>${photoBuffers.length ? ' 📸' : ''}\n“${esc(text)}”\n\nYou now have <b>${stats.totalStars}⭐</b>${stats.streak > 1 ? ` and a ${stats.streak}-day streak 🔥` : ''}. Keep loving!`, { parse_mode: 'HTML' });
+  await ctx.editMessageText(`✅ Logged! ${HEART[act.recipient]} added to your jar${photoBuffers.length ? ' 📸' : ''}\n“${esc(preview(text))}”\n\nYour jar now has <b>${stats.totalStars} heart${stats.totalStars === 1 ? '' : 's'}</b>${stats.streak > 1 ? ` and a ${stats.streak}-day streak 🔥` : ''}. Keep loving!`, { parse_mode: 'HTML' });
   announceAct(ctx.from.id, act).catch(() => {});
 });
 
-bot.command('stars', async ctx => {
+bot.command(['hearts', 'stars'], async ctx => {
   const s = await svc.userStats(ctx.from.id);
   await ctx.reply(
-    `⭐ <b>${s.totalStars} stars</b> from ${s.totalActs} act${s.totalActs === 1 ? '' : 's'} of love\n` +
-    `This week: ${s.weekStars}⭐ (${s.weekActs} act${s.weekActs === 1 ? '' : 's'})\nStreak: ${s.streak} day${s.streak === 1 ? '' : 's'} 🔥\n` +
-    `Rank: #${s.rank || '-'} of ${s.members}\n\n🌍 ${s.byType.stranger}  🤗 ${s.byType.friend}  ⛪ ${s.byType.cg}`,
-    { parse_mode: 'HTML', reply_markup: openAppKeyboard('See more stats') });
+    `🫙 <b>Your heart jar: ${s.totalStars} heart${s.totalStars === 1 ? '' : 's'}</b>\n` +
+    `This week: ${s.weekStars}\nStreak: ${s.streak} day${s.streak === 1 ? '' : 's'} 🔥\n` +
+    `Rank: #${s.rank || '-'} of ${s.members}\n\n💛 ${s.byType.stranger}  🩵 ${s.byType.friend}  🩷 ${s.byType.family}  💜 ${s.byType.cg}`,
+    { parse_mode: 'HTML', reply_markup: openAppKeyboard('Open my heart jar') });
 });
 
 bot.command('leaderboard', async ctx => {
   const rows = (await svc.leaderboard('all')).slice(0, 10);
   const medals = ['🥇', '🥈', '🥉'];
-  const lines = rows.map((r, i) => `${medals[i] || `${i + 1}.`} ${esc(r.name)}: <b>${r.stars}⭐</b>`);
+  const lines = rows.map((r, i) => `${medals[i] || `${i + 1}.`} ${esc(r.name)}: <b>${r.stars} ♥</b>`);
   await ctx.reply(`🏆 <b>Leaderboard</b>\n\n${lines.join('\n') || 'No one yet. Be the first!'}`, { parse_mode: 'HTML', reply_markup: openAppKeyboard('Open full leaderboard') });
 });
 
@@ -121,7 +125,7 @@ bot.command('broadcast', async ctx => {
 bot.command('members', async ctx => {
   if (!config.isAdmin(ctx.from.id)) return;
   const rows = await svc.leaderboard('all');
-  await ctx.reply(`👥 ${rows.length} members\n\n` + rows.map(r => `• ${esc(r.name)} (${r.stars}⭐)`).join('\n'), { parse_mode: 'HTML' });
+  await ctx.reply(`👥 ${rows.length} members\n\n` + rows.map(r => `• ${esc(r.name)} (${r.stars} ♥)`).join('\n'), { parse_mode: 'HTML' });
 });
 
 // Plain text in private chat: offer to log it.
@@ -139,7 +143,7 @@ bot.on('message:photo', async ctx => {
   const sizes = ctx.message.photo; // smallest to largest; pick the biggest one under ~1.2MB
   const best = [...sizes].reverse().find(s => !s.file_size || s.file_size < 1.2e6) || sizes[0];
   pendingLogs.set(ctx.from.id, { text: caption, photoId: best.file_id });
-  await ctx.reply(`📸 “${esc(caption)}”\n\nWho did you love?`, { parse_mode: 'HTML', reply_markup: whoKeyboard() });
+  await ctx.reply(`📸 “${esc(preview(caption))}”\n\nWho did you love?`, { parse_mode: 'HTML', reply_markup: whoKeyboard() });
 });
 
 async function downloadPhoto(fileId) {
@@ -169,12 +173,37 @@ async function broadcast(senderId, message) {
   return { sent, failed };
 }
 
+// A 🔔 notification from the admin, also sent as a Telegram message. Telegram allows 4096 characters,
+// so a very long one is cut there and the full text stays in the app.
+async function broadcastNotice(senderId, title, body) {
+  if (!config.botToken) return { sent: 0, failed: 0, skipped: true };
+  let text = esc(body);
+  if (text.length > 3600) text = esc(body.slice(0, 3000)) + '…\n\n<i>Read the full message in the app 🔔</i>';
+  const msg = `🔔 <b>${esc(title.slice(0, 200))}</b>\n\n${text}`;
+  let sent = 0, failed = 0;
+  for (const u of await svc.recipients()) {
+    try { await bot.api.sendMessage(u.id, msg, { parse_mode: 'HTML', reply_markup: openAppKeyboard() }); sent++; }
+    catch (e) { failed++; if (e instanceof GrammyError && e.error_code === 403) await svc.setNotify(u.id, false); }
+    await new Promise(r => setTimeout(r, 60));
+  }
+  await svc.logBroadcast(senderId, title + '\n\n' + body, sent, failed);
+  return { sent, failed };
+}
+
 // Optional: post each act into the CG Telegram group too.
 async function announceAct(userId, act) {
   if (!config.groupChatId || !act.is_public) return;
   const u = await svc.getUser(userId);
   await bot.api.sendMessage(config.groupChatId,
-    `💖 <b>${esc(svc.nameOf(u))}</b> loved ${svc.RECIPIENT_LABEL[act.recipient]} (+${act.stars}⭐)\n“${esc(act.description)}”`, { parse_mode: 'HTML' });
+    `💖 <b>${esc(svc.nameOf(u))}</b> loved ${svc.RECIPIENT_LABEL[act.recipient]} ${HEART[act.recipient]}\n“${esc(preview(act.description))}”`, { parse_mode: 'HTML' });
+}
+
+// Tell someone when a CG member leaves a note of encouragement on their post.
+async function notifyNote(ownerId, fromUser, body) {
+  if (!config.botToken) return;
+  const owner = await svc.getUser(ownerId);
+  if (!owner || owner.notify === 0 || owner.notify === false) return;
+  await bot.api.sendMessage(ownerId, `💌 <b>${esc(svc.nameOf(fromUser))}</b> left you a note of encouragement:\n“${esc(preview(body))}”`, { parse_mode: 'HTML' });
 }
 
 async function startBot() {
@@ -182,7 +211,7 @@ async function startBot() {
   await bot.api.setMyCommands([
     { command: 'start', description: 'Welcome and open the app' },
     { command: 'log', description: 'Log an act of love: /log what you did' },
-    { command: 'stars', description: 'My stars and stats' },
+    { command: 'hearts', description: 'My heart jar and stats' },
     { command: 'leaderboard', description: 'Top 10' },
     { command: 'countdown', description: 'Days to XMAS service and New Year' },
     { command: 'verse', description: 'Verse of the day' },
@@ -207,4 +236,4 @@ const WEBHOOK_SECRET = crypto.createHash('sha256').update('lb-webhook:' + config
 const WEBHOOK_PATH = `/telegram/${WEBHOOK_SECRET.slice(0, 16)}`;
 const webhookHandler = () => webhookCallback(bot, 'express', { secretToken: WEBHOOK_SECRET, onTimeout: 'return', timeoutMilliseconds: 9000 });
 
-module.exports = { bot, startBot, broadcast, announceAct, webhookHandler, WEBHOOK_PATH };
+module.exports = { bot, startBot, broadcast, broadcastNotice, announceAct, notifyNote, webhookHandler, WEBHOOK_PATH };

@@ -3,10 +3,11 @@ const express = require('express');
 const config = require('./config');
 const svc = require('./service');
 const { verifyInitData } = require('./auth');
+const { MISSION_CATEGORIES, PRESET_MISSIONS } = require('./missions');
 
-function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
+function createServer({ broadcast, broadcastNotice, announceAct, notifyNote, webhookHandler, webhookPath }) {
   const app = express();
-  app.use(['/api/stories', '/api/acts'], express.json({ limit: '8mb' })); // stories and acts can carry up to 4 photos
+  app.use(['/api/stories', '/api/acts', '/api/notifications'], express.json({ limit: '8mb' })); // notifications have no length limit // stories and acts can carry up to 4 photos
   app.use(express.json({ limit: '100kb' }));
   if (webhookHandler) app.post(webhookPath, webhookHandler());
   app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
@@ -45,6 +46,8 @@ function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
     approved: !!req.user.approved, onboarded: !!req.user.onboarded, isAdmin: req.isAdmin,
     stats: req.user.approved ? await svc.userStats(req.user.id) : null,
     group: req.user.approved ? await svc.groupStats() : null,
+    points: req.user.approved ? (await svc.points(req.user.id)).balance : 0,
+    unread: req.user.approved ? await svc.unreadCount(req.user.id) : 0,
     countdown: svc.countdown(), verse: svc.verseOfTheDay(), stars: config.stars, appName: config.appName,
   })));
   api.post('/join', wrap(async req => {
@@ -68,11 +71,32 @@ function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
   }));
   api.delete('/acts/:id', wrap(async req => { if (!(await svc.deleteAct(req.user.id, Number(req.params.id)))) throw new Error('Not allowed'); }));
   api.post('/acts/:id/cheer', wrap(req => svc.toggleCheer(req.user.id, Number(req.params.id))));
+  api.post('/acts/:id/react', wrap(req => svc.toggleReaction(req.user.id, Number(req.params.id), String(req.body.emoji || ''))));
+  api.post('/acts/:id/notes', wrap(async req => {
+    const r = await svc.addNote(req.user.id, Number(req.params.id), req.body.body);
+    if (notifyNote && Number(r.ownerId) !== Number(req.user.id)) notifyNote(r.ownerId, req.user, r.note.body).catch(() => {});
+    return { note: r.note };
+  }));
+  api.delete('/notes/:id', wrap(async req => { if (!(await svc.deleteNote(req.user.id, Number(req.params.id), req.isAdmin))) throw new Error('Not allowed'); }));
   api.get('/feed', wrap(req => svc.feed(req.user.id, 50, req.query.before ? Number(req.query.before) : null)));
   api.get('/leaderboard', wrap(req => svc.leaderboard(req.query.period === 'week' ? 'week' : 'all')));
-  api.get('/missions', wrap(req => svc.missions(req.user.id)));
+  // Starter missions keep the order they have in missions.js; admin-added ones come after, oldest first.
+  const presetOrder = t => { const i = PRESET_MISSIONS.findIndex(m => m.title === t); return i < 0 ? 999 : i; };
+  api.get('/missions', wrap(async req => ({ categories: await svc.categories(),
+    missions: (await svc.missions(req.user.id)).sort((a, b) => presetOrder(a.title) - presetOrder(b.title) || a.id - b.id) })));
+  api.get('/users/:id/jar', wrap(async req => { const j = await svc.jar(req.user.id, Number(req.params.id)); if (!j) throw new Error('Not found'); return j; }));
+  api.put('/group/goal', adminOnly, wrap(req => svc.setGroupGoal(req.body.goal)));
+  api.get('/group/jar', wrap(() => svc.groupJar()));
+  api.get('/acts/:id', wrap(async req => { const a = await svc.actDetail(req.user.id, Number(req.params.id)); if (!a) throw new Error('Not found'); return a; }));
+  api.get('/users/:id/acts', wrap(req => svc.userActs(req.user.id, Number(req.params.id), req.query.recipient || null)));
   api.post('/missions', adminOnly, wrap(async req => { await svc.addMission(req.user.id, req.body); }));
   api.delete('/missions/:id', adminOnly, wrap(async req => { await svc.archiveMission(Number(req.params.id)); }));
+  api.put('/missions/:id', adminOnly, wrap(async req => { await svc.editMission(req.user.id, Number(req.params.id), req.body); }));
+  api.get('/shop', wrap(req => svc.shop(req.user.id)));
+  api.post('/shop/buy', wrap(req => svc.buyItem(req.user.id, String(req.body.item || ''))));
+  api.post('/shop/equip', wrap(req => svc.equip(req.user.id, req.body || {})));
+  api.put('/shop/prices', adminOnly, wrap(async req => { await svc.setPrices(req.body || {}); return svc.shop(req.user.id); }));
+  api.put('/categories/:key', adminOnly, wrap(async req => { await svc.editCategory(req.params.key, req.body); }));
   api.get('/tasks', wrap(() => svc.tasks()));
   api.get('/stories', wrap(req => svc.stories(req.user.id)));
   api.post('/stories', wrap(async req => { await svc.addStory(req.user.id, req.body); }));
@@ -81,6 +105,15 @@ function createServer({ broadcast, announceAct, webhookHandler, webhookPath }) {
   api.post('/tasks', wrap(req => svc.addTask(req.user.id, req.body.title)));
   api.delete('/tasks/:id', wrap(async req => { if (!(await svc.deleteTask(req.user.id, Number(req.params.id)))) throw new Error('Not allowed'); }));
 
+  api.get('/notifications', wrap(async req => { const items = await svc.notifications(req.user.id); await svc.markNotifsSeen(req.user.id); return { items, seenAt: Number(req.user.notif_seen_at || 0) }; }));
+  api.get('/notifications/unread', wrap(async req => ({ unread: await svc.unreadCount(req.user.id) })));
+  api.post('/notifications', adminOnly, wrap(async req => {
+    const n = await svc.addAnnouncement(req.user.id, req.body || {});
+    let tg = null;
+    if (req.body.telegram !== false && broadcastNotice) tg = await broadcastNotice(req.user.id, n.title, n.body).catch(e => ({ error: e.message }));
+    return { ...n, telegram: tg };
+  }));
+  api.delete('/notifications/:id', adminOnly, wrap(async req => { await svc.deleteAnnouncement(Number(req.params.id)); }));
   api.post('/broadcast', adminOnly, async (req, res) => {
     const msg = String(req.body.message || '').trim().slice(0, 3500);
     if (!msg) return res.status(400).json({ error: 'Write a message first.' });

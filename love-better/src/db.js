@@ -1,7 +1,7 @@
 // Database: PostgreSQL (for example a free Neon database). Set DATABASE_URL.
 const { Pool, types } = require('pg');
 const config = require('./config');
-const { PRESET_MISSIONS } = require('./missions');
+const { PRESET_MISSIONS, RETIRED_MISSIONS } = require('./missions');
 
 types.setTypeParser(20, v => Number(v));   // BIGINT -> number (Telegram ids, timestamps, counts)
 types.setTypeParser(1700, v => Number(v)); // NUMERIC -> number (SUMs)
@@ -38,11 +38,23 @@ async function init() {
   CREATE TABLE IF NOT EXISTS cheers (
     act_id INTEGER NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (act_id, user_id));
+  CREATE TABLE IF NOT EXISTS reactions (
+    act_id INTEGER NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, emoji TEXT NOT NULL, PRIMARY KEY (act_id, user_id, emoji));
+  CREATE TABLE IF NOT EXISTS act_notes (
+    id SERIAL PRIMARY KEY, act_id INTEGER NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at BIGINT NOT NULL);
+  CREATE INDEX IF NOT EXISTS act_notes_act ON act_notes(act_id);
+  CREATE TABLE IF NOT EXISTS announcements (
+    id SERIAL PRIMARY KEY, sender_id BIGINT, title TEXT NOT NULL, body TEXT NOT NULL, created_at BIGINT NOT NULL);
   CREATE TABLE IF NOT EXISTS broadcasts (
     id SERIAL PRIMARY KEY, sender_id BIGINT, message TEXT NOT NULL, sent INTEGER, failed INTEGER, created_at BIGINT NOT NULL);
   `);
+  // Old "Cheer" taps become 💛 reactions (safe to run every start).
+  await pool.query(`INSERT INTO reactions (act_id, user_id, emoji) SELECT act_id, user_id, '💛' FROM cheers ON CONFLICT DO NOTHING`);
   await pool.query(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS real_name TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_seen_at BIGINT NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS handle TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS gender_locked INTEGER NOT NULL DEFAULT 0;
@@ -63,10 +75,24 @@ async function init() {
       story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (story_id, user_id));
   `);
-  if ((await get('SELECT COUNT(*) n FROM missions')).n === 0) {
-    const now = Date.now();
-    for (const m of PRESET_MISSIONS) await run('INSERT INTO missions (emoji, title, description, created_at) VALUES (?,?,?,?)', [m.emoji, m.title, m.description, now]);
+  // Hearts update: one heart per act, new "family" category, missions grouped into hear / see / delight.
+  await pool.query(`
+    ALTER TABLE acts DROP CONSTRAINT IF EXISTS acts_recipient_check;
+    ALTER TABLE acts ADD CONSTRAINT acts_recipient_check CHECK (recipient IN ('stranger','friend','family','cg'));
+    UPDATE acts SET stars = 1 WHERE stars <> 1;
+    ALTER TABLE missions ADD COLUMN IF NOT EXISTS category TEXT;
+    CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS purchases (user_id BIGINT NOT NULL, item_id TEXT NOT NULL, price INTEGER NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (user_id, item_id));
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS jar_style TEXT;
+  `);
+  const now = Date.now();
+  for (const m of PRESET_MISSIONS) {
+    const existing = await get('SELECT id FROM missions WHERE title = ?', [m.title]);
+    // Starter missions follow this file (category, emoji, wording). Missions the admin added are left alone.
+    if (existing) await run('UPDATE missions SET category = ?, emoji = ?, description = ? WHERE id = ? AND created_by IS NULL', [m.category, m.emoji, m.description, existing.id]);
+    else await run('INSERT INTO missions (emoji, title, description, category, created_at) VALUES (?,?,?,?,?)', [m.emoji, m.title, m.description, m.category, now]);
   }
+  await run('UPDATE missions SET active = 0 WHERE created_by IS NULL AND title = ANY(?::text[])', [RETIRED_MISSIONS]);
 }
 
 module.exports = { pool, all, get, run, init };
